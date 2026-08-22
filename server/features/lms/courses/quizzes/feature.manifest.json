@@ -1,0 +1,9 @@
+{
+    "id": "lms-courses-quizzes",
+    "name": "Quizzes",
+    "description": "Grandchild cell of lms/courses. Quiz fetch, submission grading, history.",
+    "version": "1.0.0",
+    "enabled": true,
+    "basePath": "/api/v1/lms/courses/quizzes",
+    "routes": "./routes.js"
+}

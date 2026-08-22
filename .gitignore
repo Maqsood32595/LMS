@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Build output
+frontend/dist/
+server/public/
+
+# Secrets & credentials
+.env
+.env.local
+*.service-account.json
+gcs-service-account.json
+server/config/gcs-service-account.json
+
+# Reference material / upstream clones (not part of this app)
+_upstream/
+frappe-lms-source/
+frappe_src/
+openrouter LMS.txt
+
+# Logs & OS junk
+*.log
+.DS_Store
+Thumbs.db

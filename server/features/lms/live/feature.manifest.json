@@ -1,0 +1,9 @@
+{
+    "id": "lms-live",
+    "name": "Live Classes",
+    "description": "Child cell of lms. Live class scheduling and join tokens (Google Meet / Zoom links).",
+    "version": "1.0.0",
+    "enabled": true,
+    "basePath": "/api/v1/lms/live",
+    "routes": "./routes.js"
+}

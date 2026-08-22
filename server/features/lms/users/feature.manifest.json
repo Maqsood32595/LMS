@@ -1,0 +1,10 @@
+{
+    "id": "lms-users",
+    "name": "Users",
+    "description": "Child cell of lms. User directory. Owns grandchild: students.",
+    "version": "1.0.0",
+    "enabled": true,
+    "basePath": "/api/v1/lms/users",
+    "routes": "./routes.js",
+    "children": ["students"]
+}

@@ -1,0 +1,10 @@
+{
+    "id": "lms-courses",
+    "name": "Courses",
+    "description": "Child cell of lms. Course catalog, detail, enrollment. Owns grandchildren: quizzes, content.",
+    "version": "1.0.0",
+    "enabled": true,
+    "basePath": "/api/v1/lms/courses",
+    "routes": "./routes.js",
+    "children": ["quizzes", "content"]
+}

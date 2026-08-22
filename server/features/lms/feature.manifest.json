@@ -1,0 +1,10 @@
+{
+    "id": "lms",
+    "name": "LMS Core",
+    "description": "Parent cell for the learning domain. Owns child cells: users, courses, live.",
+    "version": "1.0.0",
+    "enabled": true,
+    "basePath": "/api/v1/lms",
+    "routes": "./routes.js",
+    "children": ["users", "courses", "live"]
+}

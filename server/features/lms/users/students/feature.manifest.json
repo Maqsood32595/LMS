@@ -1,0 +1,9 @@
+{
+    "id": "lms-users-students",
+    "name": "Students",
+    "description": "Grandchild cell of lms/users. Student dashboard, lesson progress tracking.",
+    "version": "1.0.0",
+    "enabled": true,
+    "basePath": "/api/v1/lms/users/students",
+    "routes": "./routes.js"
+}
