@@ -24,3 +24,4 @@ openrouter LMS.txt
 .DS_Store
 Thumbs.db
 .server.pid
+frontend/vite.config.js.timestamp-*
