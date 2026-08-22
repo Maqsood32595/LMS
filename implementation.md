@@ -132,3 +132,23 @@
 | `lms.lms.api.get_pwa_manifest` | PWA manifest JSON | ✅ |
 | any other method | explicit JSON 404 (+hint), never HTML | ✅ |
 
+---
+
+## Phase 9 — PIET Strict Non-Hallucinating Testing (`tests/piet/piet.mjs`)
+
+> Per `D:\Hayat\workflows\persistent_in_ram_ephemeral_twin_specification.md`. Run: `npm run test:piet`. Exit 1 on any failure.
+
+- [x] **Gate 1 — Falsification Probe (6/6)**: harness red-capability proof (closed-port detection) · wrong-pw → 401 no cookie · guest `get_user_info` = null (no phantom user) · forged JWT 401 · unknown legacy method JSON-404 · GCS path-traversal stays inside `fractal-lms/`
+- [x] **Gate 2 — AST & Import Integrity (5/5)**: `node --check` over every server JS · manifest validity/uniqueness/routes-on-disk · every hashed ref in dist/index.html resolves to a real file · bundle hygiene (0×`:9000`, stub embedded, zero Jinja) · kernel control plane all cells loaded
+- [x] **Gate 3 — Zero-Mock HTTP & Storage (7/7)**: real bcrypt login sets session cookie · full upstream user_info contract from cookie · register→legacy-login persists real row · admin course create → public catalog visibility · enroll+complete → progress exactly 100 · quiz graded against DB truth incl. RED twin (wrong answer must NOT pass) · GCS v4 signed URL 302 under prefix
+- [x] **Gate 4 — Physical Layout & State (5/5)**: served HTML == disk bundle (no stale twin drift) · branding assets exist & served · PWA artifacts correct MIME (root-level manifest per W3C spec) · head state (lang=en, viewport, manifest wired) · deep-link SPA fallback
+- [x] **Result: 23/23 passed · 0 FAILED** against live Supabase + live GCS
+
+### PIET 4-Tier Promotion Pipeline (this repo)
+| Stage | Environment | Trigger |
+|---|---|---|
+| 1 | In-RAM suite (`npm run test:piet`) | every change, before commit |
+| 2 | Localhost `http://localhost:5010` | user browser verification |
+| 3 | Staging — Render on **`dev`** branch | auto-deploy |
+| 4 | Production — Render on **`main`** | fast-forward from dev, zero drift |
+
