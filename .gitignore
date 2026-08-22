@@ -23,3 +23,4 @@ openrouter LMS.txt
 *.log
 .DS_Store
 Thumbs.db
+.server.pid
