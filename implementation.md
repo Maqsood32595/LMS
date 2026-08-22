@@ -118,4 +118,17 @@
 | file/video streams | `GET …/content/stream/*` → signed GCS | ✅ |
 | `mark_lesson_progress` | `POST /api/v1/lms/users/students/me/progress` | ✅ |
 | Live Class | `GET/POST /api/v1/lms/live/classes` | ✅ |
+| **Legacy `/api/method/*` shim (`frappe-compat` cell)** | | |
+| `login` / `lms.lms.api.login` | POST — bcrypt check, sets `user_id` cookie the SPA session store reads | ✅ |
+| `logout` | clears cookie | ✅ |
+| `lms.lms.api.get_user_info` | full upstream payload (roles/permissions/enrolled_courses) from cookie session | ✅ |
+| `lms.lms.api.get_lms_settings` | allowed-fields payload + `is_payments_app_installed` | ✅ |
+| `lms.lms.api.get_branding` | `app_name` + image file-dicts | ✅ |
+| `lms.lms.api.get_sidebar_settings` | visibility flags | ✅ |
+| `lms.lms.api.get_translations` | `{}` dict | ✅ |
+| `frappe.apps.get_apps` | `[]` | ✅ |
+| `lms.lms.utils.get_programs` | `[]` | ✅ |
+| `lms.lms.api.get_all_users` | user directory | ✅ |
+| `lms.lms.api.get_pwa_manifest` | PWA manifest JSON | ✅ |
+| any other method | explicit JSON 404 (+hint), never HTML | ✅ |
 
