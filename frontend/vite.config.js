@@ -44,27 +44,11 @@ export default defineConfig(async ({ mode }) => {
 				jinjaBootData: false, // ← boot data now comes from /api/v1/auth/user
 			}),
 			vue(),
+			// ── FRACTAL: PWA service worker DISABLED ─────────────────────────
+			// A stale bench-era SW kept serving the old bundle. public/sw.js +
+			// public/registerSW.js now ship SELF-UNINSTALLING workers instead.
 			VitePWA({
-				registerType: 'autoUpdate',
-				devOptions: {
-					enabled: false,
-				},
-				workbox: {
-					cleanupOutdatedCaches: true,
-					maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-					globPatterns: ['**/*.{js,ts,css,html,svg}'],
-					runtimeCaching: [
-						{
-							urlPattern: ({ request }) =>
-								request.destination === 'document',
-							handler: 'NetworkFirst',
-							options: {
-								cacheName: 'html-cache',
-							},
-						},
-					],
-				},
-				manifest: false,
+				disable: true,
 			}),
 			// pdf.js needs cMaps + standard_fonts as sibling assets or those PDFs
 			// render blank. PdfBlock.vue points cMapUrl/standardFontDataUrl at
