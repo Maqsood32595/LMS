@@ -11,16 +11,19 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// CORS — allow the SPA origins declared in .env (CORS_ORIGIN, comma separated)
+// CORS — same-origin is always fine; allow configured origins + any localhost dev port
 const allowedOrigins = (process.env.CORS_ORIGIN || '')
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
+const LOCALHOST_RE = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
 
 app.use(
     cors({
         origin(origin, cb) {
-            if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+            // No Origin header (normal navigation) or same-origin/module-crossorigin
+            // requests from our own host are always allowed.
+            if (!origin || LOCALHOST_RE.test(origin) || allowedOrigins.includes(origin)) {
                 return cb(null, true);
             }
             cb(new Error('Not allowed by CORS'));

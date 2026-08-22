@@ -1,0 +1,9 @@
+{
+    "id": "frappe-compat",
+    "name": "Frappe Compat",
+    "description": "Legacy /api/method/* endpoints still referenced by the preserved UI (e.g. PWA manifest).",
+    "version": "1.0.0",
+    "enabled": true,
+    "basePath": "/api/method",
+    "routes": "./routes.js"
+}
