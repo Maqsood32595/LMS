@@ -20,6 +20,24 @@ export default defineConfig(async ({ mode }) => {
 			__VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false',
 		},
 		plugins: [
+			{
+				// ── FRACTAL: neutralize frappe-ui's bench socket ─────────────
+				// FrappeUI's install() calls its bundled initSocket(), which
+				// dials the bench realtime port (:9000) on every page load.
+				// Redirect that module to our optional-realtime stub.
+				name: 'fractal-noop-frappe-socket',
+				enforce: 'pre',
+				resolveId(id, importer) {
+					if (
+						importer &&
+						importer.includes('frappe-ui') &&
+						/utils[/\\]socketio(\.(ts|js))?$/.test(id)
+					) {
+						return path.resolve(__dirname, 'src/stubs/frappe-noop-socket.ts')
+					}
+					return null
+				},
+			},
 			frappeui({
 				frappeProxy: false, // ← no more Frappe bench
 				lucideIcons: true,
