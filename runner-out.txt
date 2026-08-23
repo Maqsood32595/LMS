@@ -1,0 +1,4 @@
+pre-start listener: none
+server up & PID-matched: true expected=26460 listener=26460
+SUITE tests/piet/gate6.spec.mjs -> exit 0
+SUITE tests/piet/piet.mjs -> exit 1

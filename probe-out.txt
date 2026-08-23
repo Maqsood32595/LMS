@@ -1,0 +1,5 @@
+probe start
+cookie len 16
+lessonId df994151-7bf6-4974-b524-7a922ac02600
+save_progress status 500
+save_progress body {"exc_type":"ServerError","messages":["invalid input syntax for type uuid: \"fractal-kernel-fundamentals\""]}

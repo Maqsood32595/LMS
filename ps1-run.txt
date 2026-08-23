@@ -1,0 +1,4 @@
+health=True pid=29708
+gate6 exit=0
+piet exit=1
+server still running pid=29708

@@ -1,0 +1,61 @@
+
+â•”â•â•â• PIET Â· Strict Non-Hallucinating Suite â•â•â•â•—
+
+â•‘ G1-Falsification  6/6
+â•‘   âœ… harness detects unreachable server (red-capability proof)
+â•‘   âœ… wrong password rejected 401, no session cookie
+â•‘   âœ… get_user_info without session returns null (no phantom user)
+â•‘   âœ… forged Bearer token rejected 401 on /api/v1/auth/me
+â•‘   âœ… unknown /api/method returns JSON 404 (not HTML)
+â•‘   âœ… stream traversal cannot escape fractal-lms/ prefix
+
+â•‘ G2-AST-Integrity  3/5
+â•‘   âŒ every server/**/*.js parses under node --check (zero SyntaxError)
+â•‘      â†³ syntax errors â†’ d:\Mujahid\LMS\/server/scripts/scan-gate6.js: d:\Mujahid\LMS\server\scripts\scan-gate6.js:17
+const fs = require('fs');
+      ^
+
+SyntaxError: I
+â•‘   âœ… manifests valid Â· unique ids/basePaths Â· routes exist on disk
+â•‘   âœ… dist/index.html references resolve to REAL files (no dangling hashes)
+â•‘   âœ… bundle hygiene: no :9000 dialer Â· socket stub embedded Â· zero Jinja
+â•‘   âŒ kernel control plane reports every cell loaded
+â•‘      â†³ fetch failed
+
+â•‘ G3-ZeroMock-HTTP  7/7
+â•‘   âœ… admin login sets user_id session cookie (real bcrypt path)
+â•‘   âœ… get_user_info (cookie) carries full upstream contract
+â•‘   âœ… register â†’ legacy login round-trip persists a REAL student row
+â•‘   âœ… create course (admin) â†’ persisted & visible in public catalog
+â•‘   âœ… enroll + lesson complete recomputes progress to exactly 100
+â•‘   âœ… quiz submit grades against DB truth â€” correct answer = 100%
+â•‘   âœ… GCS stream returns 302 v4 signed URL under fractal-lms/ prefix
+
+â•‘ G4-Physical-Invariants  5/5
+â•‘   âœ… served index.html matches disk bundle hash (no stale twin drift)
+â•‘   âœ… branding fallback assets exist on disk AND are served 200
+â•‘   âœ… PWA artifacts served with correct MIME (manifestÂ·swÂ·registerSW)
+â•‘   âœ… document head state: lang=en Â· viewport Â· manifest link wired
+â•‘   âœ… deep-link history fallback serves SPA shell on unknown route
+
+â•‘ G5-RoleJourneys  6/6
+â•‘   âœ… GET /login serves standalone form Â· GET /signup serves signup
+â•‘   âœ… STUDENT enrolls via frappe.client.insert (exact UI path)
+â•‘   âœ… TUTOR creates course via frappe.client.insert â†’ slug returned
+â•‘   âœ… RED: student course creation rejected 403 PermissionError
+â•‘   âœ… student get_created_courses also blocked 403 (role gate)
+â•‘   âœ… streak info shape + search_users_by_role returns only staff
+
+â•‘ G6-LegacyDeep  8/8
+â•‘   âœ… get_courses catalog returns published cards incl. demo course
+â•‘   âœ… course_categories includes seeded category
+â•‘   âœ… get_course_details full contract (chapters, lessons, membership)
+â•‘   âœ… legacy save_progress persists + recomputes to 100 (exact UI endpoint)
+â•‘   âœ… get_courses catalog returns published cards incl. demo course
+â•‘   âœ… course_categories includes seeded category
+â•‘   âœ… get_course_details full contract (chapters, lessons, membership)
+â•‘   âœ… legacy save_progress persists + recomputes to 100 (exact UI endpoint)
+
+â•šâ•â• 35/37 passed Â· 2 FAILED â•â•â•
+
+

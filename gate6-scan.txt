@@ -1,0 +1,5 @@
+L14 len=1: "}"
+L15 len=74: "function assert(c, m) { if (!c) throw new Error(m || 'assertion failed') }"
+L16 len=113: "function eq(a, b, m) { assert(a === b, `${m || 'eq'} → expected ${JSON.stringify(b)} got ${JSON.stringify(a)}`) }"
+L17 len=29: "async function j(p, o = {}) {"
+TOTAL LINES: 158

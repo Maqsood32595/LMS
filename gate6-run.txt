@@ -1,0 +1,58 @@
+﻿node : file:///D:/M
+ujahid/LMS/tests/pi
+et/gate6.spec.mjs:1
+58
+At line:1 char:30
++ ... -Location 
+d:\Mujahid\LMS; 
+node tests/piet/gat
+e6.spec.mjs 2>&1 | 
+Out-F ...
++                  
+             ~~~~~~
+~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~
+    + CategoryInfo 
+             : No  
+  tSpecified: (f   
+ ile:///D:/Muja    
+...e6.spec.mjs    
+:158:String) [    
+], RemoteExcep    
+tion
+    + FullyQualifi 
+   edErrorId : Na  
+  tiveCommandErr   
+ or
+ 
+
+
+
+SyntaxError: 
+Unexpected end of 
+input
+    at compileSourc
+eTextModule (node:i
+nternal/modules/esm
+/utils:344:16)
+    at ModuleLoader
+.moduleStrategy (no
+de:internal/modules
+/esm/translators:10
+5:18)
+    at #translate (
+node:internal/modul
+es/esm/loader:534:1
+2)
+    at ModuleLoader
+.loadAndTranslate (
+node:internal/modul
+es/esm/loader:581:2
+7)
+    at async 
+ModuleJob._link (no
+de:internal/modules
+/esm/module_job:116
+:19)
+
+Node.js v22.15.0

@@ -1,0 +1,9 @@
+service.js: OK
+routes.js: OK
+features: 200 raw
+login-page: 200 html
+get_courses: 200 envelope
+course_details: 500 raw
+lesson: 404 raw
+notifications: 200 envelope
+stub-jobs: 200 envelope

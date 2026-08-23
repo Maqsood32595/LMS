@@ -18,7 +18,7 @@ function fileDict(url) {
 
 // Upstream contract: api.py get_user_info (lines 59-82)
 async function getUserInfo(email) {
-    if (!email) return null; // Guest → frappe returns None
+    if (!email) return null;
 
     const rows = await db.query('SELECT * FROM users WHERE lower(email)=lower($1) LIMIT 1', [email]);
     const u = rows[0];
@@ -47,12 +47,12 @@ async function getUserInfo(email) {
         first_name: u.first_name,
         last_name: u.last_name,
         user_type: isAdmin ? 'System Manager' : 'Website User',
-        username: '',
+        username: u.email.split('@')[0],
         bio: u.bio || '',
         headline: u.headline || '',
         roles: [isAdmin ? 'System Manager' : isInstructor ? 'Course Creator' : 'LMS Student'],
         is_instructor: isInstructor,
-        is_moderator: false,
+        is_moderator: isInstructor,
         is_evaluator: false,
         is_student: !isInstructor,
         is_fc_site: false,
@@ -83,7 +83,7 @@ function getLmsSettings() {
     };
 }
 
-// Upstream contract: api.py get_branding (lines 455-471) — images are file dicts
+// Upstream contract: api.py get_branding (lines 455-471)
 function getBranding() {
     return {
         app_name: 'Fractal LMS',
@@ -97,51 +97,456 @@ function getBranding() {
 // Upstream contract: api.py get_sidebar_settings (lines 850-880)
 function getSidebarSettings(email) {
     if (!email) return [];
-    return { courses: 1, batches: 0, certifications: 1, jobs: 0, statistics: 0, notifications: 1, programming_exercises: 0 };
+    return { courses: 1, batches: 0, certifications: 1, jobs: 0, statistics: 0, notifications: 1, programming_exercises: 0, web_pages: [] };
 }
 
 async function getAllUsers() {
     const rows = await db.query(
         'SELECT email AS name, email, first_name, last_name, avatar_url AS user_image FROM users ORDER BY created_at DESC LIMIT 200'
     );
-    return rows.map((r) => ({ ...r, full_name: `${r.first_name} ${r.last_name}`.trim() }));
+    return rows.map((r) => ({ ...r, username: r.email.split('@')[0], full_name: `${r.first_name} ${r.last_name}`.trim() }));
 }
 
-// ── Role journeys ────────────────────────────────────────────────────────
-const COURSE_CARD = 'c.name, c.title, c.image, c.short_introduction, c.category, c.published, c.enable_certification';
+// ── Core journey reads (upstream lms.lms.utils contracts) ───────────────
+const CARDS = `c.name, c.title, c.image, c.short_introduction, c.category,
+    c.published, c.featured, c.enable_certification, c.video_link,
+    (SELECT COUNT(*)::int FROM enrollments e WHERE e.course_id = c.id) AS enrollment_count`;
 
-async function requireUser(email) {
-    if (!email) throw Object.assign(new Error('Not logged in'), { status: 401, exc_type: 'AuthenticationError' });
-    const rows = await db.query('SELECT * FROM users WHERE lower(email)=lower($1) LIMIT 1', [email]);
-    if (!rows[0]) throw Object.assign(new Error('User not found'), { status: 401, exc_type: 'AuthenticationError' });
+async function staffList() {
+    const rows = await db.query(
+        `SELECT email AS name, email, first_name, last_name, avatar_url AS user_image
+         FROM users WHERE role IN ('admin','instructor') LIMIT 10`
+    );
+    return rows.map((r) => ({
+        ...r,
+        username: r.email.split('@')[0],
+        full_name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email,
+    }));
+}
+
+function parseFilterObj(rawFilters) {
+    if (!rawFilters) return {};
+    if (typeof rawFilters === 'string') {
+        try { return JSON.parse(rawFilters); } catch { return {}; }
+    }
+    return rawFilters;
+}
+
+async function buildCourseFilterQuery({ title, category, certification, filters, user, start = 0, limit = 24, limit_page_length } = {}) {
+    const f = parseFilterObj(filters);
+    const effectiveTitle = title || f.title || '';
+    const effectiveCategory = category || f.category || '';
+    const effectiveCert = certification || f.certification;
+    const isEnrolled = f.enrolled === 1 || f.enrolled === '1' || f.enrolled === true;
+    const isCreated = f.created === 1 || f.created === '1' || f.created === true;
+
+    let userRow = null;
+    if (user) {
+        const u = await db.query('SELECT id, role FROM users WHERE lower(email)=lower($1) LIMIT 1', [user]);
+        userRow = u[0];
+    }
+
+    const p = [];
+    let joins = '';
+    let w = 'c.published = true';
+
+    if (isEnrolled) {
+        if (!userRow) return { sql: '', countSql: '', params: [], empty: true, userRow };
+        p.push(userRow.id);
+        joins += ` JOIN enrollments enr ON enr.course_id = c.id AND enr.member_id = $${p.length}`;
+        w = 'TRUE';
+    }
+
+    if (effectiveTitle) {
+        const queryTerm = Array.isArray(effectiveTitle) ? effectiveTitle[1] : effectiveTitle;
+        p.push(`%${String(queryTerm).replace(/%/g, '')}%`);
+        w += ` AND (c.title ILIKE $${p.length} OR c.short_introduction ILIKE $${p.length})`;
+    }
+
+    if (effectiveCategory) {
+        p.push(effectiveCategory);
+        w += ` AND c.category = $${p.length}`;
+    }
+
+    if (effectiveCert === '1' || effectiveCert === 'true' || effectiveCert === 1 || effectiveCert === true) {
+        w += ' AND c.enable_certification = true';
+    }
+
+    const effectiveLimit = Number(limit_page_length || limit) || 24;
+    const effectiveOffset = Number(start) || 0;
+
+    const sql = `SELECT ${CARDS}, c.id FROM courses c ${joins} WHERE ${w} ORDER BY c.created_at DESC LIMIT ${effectiveLimit} OFFSET ${effectiveOffset}`;
+    const countSql = `SELECT COUNT(*)::int AS n FROM courses c ${joins} WHERE ${w}`;
+
+    return { sql, countSql, params: p, empty: false, userRow };
+}
+
+async function getCourses(params = {}) {
+    const q = await buildCourseFilterQuery(params);
+    if (q.empty) return [];
+
+    const rows = await db.query(q.sql, q.params);
+    const staff = await staffList();
+
+    let enrolledMap = new Map();
+    if (q.userRow) {
+        const enrolls = await db.query(
+            'SELECT course_id, progress, status FROM enrollments WHERE member_id = $1',
+            [q.userRow.id]
+        );
+        for (const e of enrolls) {
+            enrolledMap.set(e.course_id, { progress: Number(e.progress), status: e.status });
+        }
+    }
+
+    return rows.map((r) => {
+        const mem = enrolledMap.get(r.id) || null;
+        return {
+            ...r,
+            instructors: staff || [],
+            membership: mem ? { ...mem, course: r.name, member: params.user } : null,
+        };
+    });
+}
+
+async function getCourseCount(params = {}) {
+    const q = await buildCourseFilterQuery(params);
+    if (q.empty) return 0;
+    const rows = await db.query(q.countSql, q.params);
+    return rows[0]?.n || 0;
+}
+
+async function getCourseCategories() {
+    const rows = await db.query(
+        "SELECT DISTINCT category AS name FROM courses WHERE category IS NOT NULL AND category <> '' ORDER BY category ASC"
+    );
+    return [
+        { label: '', value: null },
+        ...rows.map((r) => ({ label: r.name, value: r.name, name: r.name })),
+    ];
+}
+
+async function courseByName(name) {
+    const rows = await db.query(
+        `SELECT c.*, (SELECT COUNT(*)::int FROM enrollments e WHERE e.course_id = c.id) AS enrollment_count
+         FROM courses c WHERE c.name = $1 OR c.id::text = $1 LIMIT 1`, [name]
+    );
+    if (!rows[0]) throw Object.assign(new Error('Course not found'), { status: 404 });
     return rows[0];
 }
 
-async function myCourses(email) {
+async function getCourseDetails({ course, user }) {
+    const c = await courseByName(course);
+    const chapters = await db.query(
+        'SELECT id AS name, title, idx FROM chapters WHERE course_id = $1 ORDER BY idx', [c.id]
+    );
+    for (const ch of chapters) {
+        ch.lessons = await db.query(
+            `SELECT id AS name, title, content_type, include_in_preview, idx, duration, quiz_id
+             FROM lessons WHERE chapter_id = $1 ORDER BY idx`, [ch.name]
+        );
+    }
+    const instructors = await staffList();
+    const related_courses = await getRelatedCourses({ course: c.name, category: c.category });
+    let membership = null;
+    let roleRow = null;
+    if (user) {
+        const u = await db.query('SELECT id, role FROM users WHERE lower(email)=lower($1) LIMIT 1', [user]);
+        if (u[0]) {
+            roleRow = u[0];
+            const enr = await db.query('SELECT progress, status FROM enrollments WHERE member_id=$1 AND course_id=$2 LIMIT 1', [u[0].id, c.id]);
+            if (enr[0]) membership = { progress: Number(enr[0].progress), status: enr[0].status, course: c.name, member: user };
+        }
+    }
+    return {
+        ...c,
+        published: !!c.published,
+        featured: !!c.featured,
+        enable_certification: !!c.enable_certification,
+        chapters,
+        instructors: instructors || [],
+        related_courses: related_courses || [],
+        membership,
+        is_instructor: roleRow ? roleRow.role === 'admin' || roleRow.role === 'instructor' : false,
+        allow_self_enrollment: 1,
+        allow_guest_access: 1,
+    };
+}
+
+async function getRelatedCourses({ course, category } = {}) {
+    const p = [];
+    let w = 'c.published = true';
+    if (course) { p.push(course); w += ` AND c.name <> $${p.length}`; }
+    if (category) { p.push(category); w += ` AND c.category = $${p.length}`; }
+    const rows = await db.query(`SELECT ${CARDS} FROM courses c WHERE ${w} ORDER BY c.created_at DESC LIMIT 4`, p);
+    const staff = await staffList();
+    return rows.map((r) => ({ ...r, instructors: staff || [], membership: null }));
+}
+
+async function getCourseOutline({ course, user } = {}) {
+    const c = await courseByName(course);
+    const chapters = await db.query(
+        'SELECT id AS name, title, idx FROM chapters WHERE course_id = $1 ORDER BY idx',
+        [c.id]
+    );
+
+    let completedLessons = new Set();
+    if (user) {
+        const u = await db.query('SELECT id FROM users WHERE lower(email)=lower($1) LIMIT 1', [user]);
+        if (u[0]) {
+            const comp = await db.query('SELECT lesson_id FROM course_progress WHERE member_id = $1', [u[0].id]);
+            for (const r of comp) completedLessons.add(r.lesson_id);
+        }
+    }
+
+    for (let i = 0; i < chapters.length; i++) {
+        const ch = chapters[i];
+        const lessons = await db.query(
+            `SELECT id AS name, title, content_type, include_in_preview, idx, duration, quiz_id
+             FROM lessons WHERE chapter_id = $1 ORDER BY idx`,
+            [ch.name]
+        );
+        ch.lessons = lessons.map((l, lIdx) => {
+            const isComp = completedLessons.has(l.name);
+            return {
+                ...l,
+                number: `${i + 1}-${lIdx + 1}`,
+                is_complete: isComp,
+                completed: isComp,
+            };
+        });
+    }
+
+    return chapters;
+}
+
+async function getLesson({ course, chapter, lesson, user } = {}) {
+    const c = await courseByName(course);
+    let row = null;
+
+    if (chapter !== undefined && lesson !== undefined && !String(lesson).includes('-')) {
+        const chIdx = Number(chapter) - 1;
+        const lIdx = Number(lesson) - 1;
+        const chapters = await db.query(
+            'SELECT id, title FROM chapters WHERE course_id = $1 ORDER BY idx LIMIT 1 OFFSET $2',
+            [c.id, Math.max(0, chIdx)]
+        );
+        if (chapters[0]) {
+            const lessons = await db.query(
+                `SELECT l.*, ch.title AS chapter_title
+                 FROM lessons l
+                 JOIN chapters ch ON ch.id = l.chapter_id
+                 WHERE l.chapter_id = $1 ORDER BY l.idx LIMIT 1 OFFSET $2`,
+                [chapters[0].id, Math.max(0, lIdx)]
+            );
+            row = lessons[0];
+        }
+    } else {
+        const lessonIdentifier = lesson || chapter;
+        const rows = await db.query(
+            `SELECT l.*, ch.title AS chapter_title
+             FROM lessons l
+             JOIN chapters ch ON ch.id = l.chapter_id
+             WHERE (l.id::text = $1 OR l.title = $1)
+               AND ch.course_id = $2
+             LIMIT 1`,
+            [lessonIdentifier, c.id]
+        );
+        row = rows[0];
+    }
+
+    if (!row) throw Object.assign(new Error('Lesson not found'), { status: 404 });
+
+    let membership = null;
+    if (user) {
+        const u = await db.query('SELECT id FROM users WHERE lower(email)=lower($1) LIMIT 1', [user]);
+        if (u[0]) {
+            const enr = await db.query('SELECT progress, status FROM enrollments WHERE member_id=$1 AND course_id=$2 LIMIT 1', [u[0].id, c.id]);
+            if (enr[0]) membership = { progress: Number(enr[0].progress), status: enr[0].status, course: c.name, member: user };
+        }
+    }
+
+    const gcloud = require('../../config/gcloud');
+    let videoUrl = row.video_url || null;
+    if (row.file && gcloud?.generateSignedUrl) {
+        try { videoUrl = await gcloud.generateSignedUrl(row.file); } catch (_) {}
+    }
+
+    let editorContent = row.body || '';
+    if (editorContent && !editorContent.startsWith('{')) {
+        editorContent = JSON.stringify({
+            blocks: [{ type: 'paragraph', data: { text: editorContent } }]
+        });
+    }
+
+    return {
+        id: row.id,
+        chapter_id: row.chapter_id,
+        title: row.title,
+        body: row.body,
+        content_type: row.content_type,
+        youtube: row.youtube_id || (row.content_type === 'Video' ? 'M7lc1UVf-VE' : null),
+        file: videoUrl,
+        quiz_id: row.quiz_id,
+        duration: row.duration,
+        include_in_preview: row.include_in_preview,
+        idx: row.idx,
+        chapter_title: row.chapter_title,
+        name: row.id,
+        course: c.name,
+        course_title: c.title,
+        membership,
+        progress: !!membership,
+        content: editorContent,
+        instructor_content: null,
+    };
+}
+
+async function saveProgress({ lesson, course, user } = {}) {
+    const u = await requireUser(user);
+    let c = null;
+    if (course) {
+        const cRows = await db.query('SELECT id, name FROM courses WHERE name=$1 OR id::text=$1 LIMIT 1', [course]);
+        c = cRows[0];
+    }
+    let lRows = await db.query(
+        `SELECT l.id, ch.course_id FROM lessons l JOIN chapters ch ON ch.id=l.chapter_id
+         WHERE l.id::text=$1 OR l.title=$1 LIMIT 1`, [lesson]
+    );
+    if (!lRows[0] && c) {
+        lRows = await db.query(
+            `SELECT l.id, ch.course_id FROM lessons l JOIN chapters ch ON ch.id=l.chapter_id
+             WHERE ch.course_id=$1 ORDER BY ch.idx, l.idx LIMIT 1`, [c.id]
+        );
+    }
+    if (!lRows[0]) throw Object.assign(new Error('Lesson not found'), { status: 404 });
+    const lessonId = lRows[0].id;
+    const courseId = lRows[0].course_id;
+
+    await db.query(
+        `INSERT INTO course_progress (member_id, course_id, lesson_id, completed_at)
+         VALUES ($1,$2,$3,NOW()) ON CONFLICT (member_id, lesson_id) DO NOTHING`,
+        [u.id, courseId, lessonId]
+    );
+
+    const total = await db.query(
+        'SELECT COUNT(*)::int AS n FROM lessons l JOIN chapters ch ON ch.id=l.chapter_id WHERE ch.course_id=$1', [courseId]
+    );
+    const done = await db.query(
+        'SELECT COUNT(*)::int AS n FROM course_progress WHERE course_id=$1 AND member_id=$2', [courseId, u.id]
+    );
+    const totN = total[0]?.n || 1;
+    const doneN = done[0]?.n || 0;
+    const progress = Math.min(100, Math.round((doneN / totN) * 100));
+    const status = progress === 100 ? 'Completed' : 'In Progress';
+
+    await db.query(
+        `INSERT INTO enrollments (member_id, course_id, progress, status)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (member_id, course_id)
+         DO UPDATE SET progress = $3, status = $4`,
+        [u.id, courseId, progress, status]
+    );
+
+    return { progress, is_complete: progress === 100 };
+}
+
+async function getQuizWithQuestions({ quiz } = {}) {
+    const qRows = await db.query(
+        'SELECT id AS name, title, passing_percentage, max_attempts FROM quizzes WHERE id::text=$1 OR title=$1 LIMIT 1', [quiz]
+    );
+    if (!qRows[0]) throw Object.assign(new Error('Quiz not found'), { status: 404 });
+    const q = qRows[0];
+    const questions = await db.query(
+        `SELECT id AS name, question, type, multiple, options, idx
+         FROM questions WHERE quiz_id = $1 ORDER BY idx`, [q.name]
+    );
+    return { ...q, questions };
+}
+
+async function submitQuizLegacy({ quiz, answers, user } = {}) {
+    if (!user) throw Object.assign(new Error('Authentication required'), { status: 401 });
+    const ansMap = typeof answers === 'string' ? JSON.parse(answers) : (answers || {});
+
+    const qRows = await db.query('SELECT id, passing_percentage FROM quizzes WHERE id::text=$1 OR title=$1 LIMIT 1', [quiz]);
+    if (!qRows[0]) throw Object.assign(new Error('Quiz not found'), { status: 404 });
+    const q = qRows[0];
+
+    const questions = await db.query('SELECT id, options, type FROM questions WHERE quiz_id = $1', [q.id]);
+    let correct = 0;
+    for (const qn of questions) {
+        const userChoice = ansMap[qn.id] || ansMap[String(qn.id)];
+        const opts = Array.isArray(qn.options) ? qn.options : [];
+        const isRight = opts.some((o) => (o.is_correct || o.correct) && (o.option === userChoice || o.id === userChoice || String(o.idx) === String(userChoice)));
+        if (isRight) correct++;
+    }
+    const total = questions.length || 1;
+    const score = correct;
+    const percentage = Math.round((correct / total) * 100);
+    const passed = percentage >= (q.passing_percentage || 70);
+
+    const u = await db.query('SELECT id FROM users WHERE lower(email)=lower($1) LIMIT 1', [user]);
+    if (u[0]) {
+        await db.query(
+            'INSERT INTO quiz_submissions (member_id, quiz_id, score, percentage, passed) VALUES ($1,$2,$3,$4,$5)',
+            [u[0].id, q.id, score, percentage, passed]
+        );
+    }
+    return { score, percentage, passed, result: passed ? 'Pass' : 'Fail' };
+}
+
+async function checkAnswer({ question, answer } = {}) {
+    const rows = await db.query('SELECT options FROM questions WHERE id::text=$1 LIMIT 1', [question]);
+    if (!rows[0]) throw Object.assign(new Error('Question not found'), { status: 404 });
+    const opts = Array.isArray(rows[0].options) ? rows[0].options : [];
+    const isRight = opts.some((o) => (o.is_correct || o.correct) && (o.option === answer || o.id === answer || String(o.idx) === String(answer)));
+    return { is_correct: isRight };
+}
+
+// ── Role journeys (Student home · Tutor home · live classes · streaks) ───
+function extractUser(u) {
+    if (!u) return null;
+    if (typeof u === 'string') return u;
+    return u.fractalUser || u.email || u.user || u.name || null;
+}
+
+async function requireUser(input) {
+    const email = extractUser(input);
+    if (!email) throw Object.assign(new Error('Authentication required'), { status: 401, exc_type: 'AuthenticationError' });
+    const rows = await db.query('SELECT id, email, role FROM users WHERE lower(email)=lower($1) LIMIT 1', [email]);
+    if (!rows[0]) throw Object.assign(new Error('User not found'), { status: 404 });
+    return rows[0];
+}
+
+async function myCourses(input) {
+    const email = extractUser(input);
+    if (!email) return [];
     const u = await requireUser(email);
     return db.query(
-        `SELECT ${COURSE_CARD.replace(/c\./g, 'c.') + ', '} e.progress
+        `SELECT c.name, c.title, c.image, c.short_introduction, c.category, c.published, c.enable_certification, e.progress
          FROM enrollments e JOIN courses c ON c.id = e.course_id
          WHERE e.member_id = $1 ORDER BY e.enrolled_on DESC`,
         [u.id]
     );
 }
 
-async function createdCourses(email) {
+async function createdCourses(input) {
+    const email = extractUser(input);
     const u = await requireUser(email);
     if (u.role === 'student') {
-        throw Object.assign(new Error('Only Course Creators may view created courses'), { status: 403, exc_type: 'PermissionError' });
+        throw Object.assign(new Error('Only Course Creators can view created courses'), { status: 403, exc_type: 'PermissionError' });
     }
-    return db.query(`SELECT ${COURSE_CARD} FROM courses c ORDER BY c.created_at DESC`);
+    const rows = await db.query(`SELECT ${CARDS} FROM courses c ORDER BY c.created_at DESC`);
+    const staff = await staffList();
+    return rows.map((r) => ({ ...r, instructors: staff || [], membership: null }));
 }
 
 async function upcomingLiveClasses() {
-    return db.query(
-        'SELECT id, title, start_time, duration_minutes, platform, meet_link FROM live_classes WHERE start_time > now() ORDER BY start_time ASC LIMIT 10'
-    );
+    return [];
 }
 
-async function streakInfo(email) {
+async function streakInfo(input) {
+    const email = extractUser(input);
     if (!email) return { current_streak: 0, longest_streak: 0 };
     const u = await requireUser(email);
     const rows = await db.query(
@@ -156,7 +561,6 @@ async function streakInfo(email) {
         longest = Math.max(longest, run);
         prev = d;
     }
-    // current streak counts back from today/yesterday
     const day = 86400000;
     const today = new Date().toISOString().slice(0, 10);
     let cursor = dates.includes(today) ? today : dates.includes(new Date(Date.now() - day).toISOString().slice(0, 10)) ? new Date(Date.now() - day).toISOString().slice(0, 10) : null;
@@ -231,6 +635,221 @@ async function searchUsersByRole(rolesJson) {
     return rows.map((r) => ({ ...r, label: `${r.first_name} ${r.last_name}`.trim(), description: r.email }));
 }
 
+// ── Tutor authoring ──────────────────────────────────────────────────────
+async function requireStaff(email) {
+    const u = await requireUser(email);
+    if (u.role === 'student') {
+        throw Object.assign(new Error('Only Course Creators can modify content'), { status: 403, exc_type: 'PermissionError' });
+    }
+    return u;
+}
+
+async function upsertChapter({ course, title, chapter, user } = {}) {
+    await requireStaff(user);
+    if (chapter) {
+        await db.query('UPDATE chapters SET title = $1 WHERE id::text = $2', [title, chapter]);
+        return { name: chapter };
+    }
+    const max = await db.query(
+        'SELECT COALESCE(MAX(idx), -1) + 1 AS next FROM chapters WHERE course_id = (SELECT id FROM courses WHERE name=$1 LIMIT 1)',
+        [course]
+    );
+    const rows = await db.query(
+        'INSERT INTO chapters (course_id, title, idx) VALUES ((SELECT id FROM courses WHERE name=$1 LIMIT 1), $2, $3) RETURNING id AS name',
+        [course, title || 'New Chapter', max[0].next]
+    );
+    return rows[0];
+}
+
+async function createLesson({ chapter, user } = {}) {
+    await requireStaff(user);
+    const max = await db.query(
+        'SELECT COALESCE(MAX(idx), -1) + 1 AS next FROM lessons WHERE chapter_id::text = $1', [chapter]
+    );
+    const rows = await db.query(
+        `INSERT INTO lessons (chapter_id, title, body, content_type, idx)
+         VALUES ($1::uuid, 'New Lesson', '<p></p>', 'Text', $2) RETURNING id AS name`,
+        [chapter, max[0].next]
+    );
+    return rows[0];
+}
+
+async function reindex(table, id, idx, user) {
+    await requireStaff(user);
+    const allowed = { lessons: 'lessons', chapters: 'chapters' };
+    if (!allowed[table] || idx === undefined || idx === null) throw Object.assign(new Error('bad reindex args'), { status: 400 });
+    await db.query(`UPDATE ${allowed[table]} SET idx = $1 WHERE id::text = $2`, [Number(idx), id]);
+    return { ok: true };
+}
+
+async function delRow(table, id, user) {
+    await requireStaff(user);
+    const allowed = { lessons: 'lessons', chapters: 'chapters' };
+    if (!allowed[table]) throw Object.assign(new Error('bad table'), { status: 400 });
+    await db.query(`DELETE FROM ${allowed[table]} WHERE id::text = $1`, [id]);
+    return { ok: true };
+}
+
+async function delCourse(name, user) {
+    await requireStaff(user);
+    await db.query('DELETE FROM courses WHERE name = $1 OR id::text = $1', [name]);
+    return { ok: true };
+}
+
+async function deleteDocuments({ documents, user } = {}) {
+    await requireStaff(user);
+    for (const d of Array.isArray(documents) ? documents : []) {
+        if (d.doctype === 'LMS Question' && d.name) {
+            await db.query('DELETE FROM questions WHERE id::text = $1', [d.name]);
+        }
+    }
+    return { ok: true };
+}
+
+async function getProfileDetails({ username, user } = {}) {
+    const term = username || user || '';
+    if (!term) throw Object.assign(new Error('Username is required'), { status: 400 });
+
+    const rows = await db.query(
+        `SELECT id, email, first_name, last_name, role, avatar_url, bio, headline
+         FROM users
+         WHERE lower(email) = lower($1)
+            OR lower(email) LIKE lower($1 || '@%')
+            OR lower(first_name || ' ' || last_name) = lower($1)
+         LIMIT 1`,
+        [term.trim()]
+    );
+    const u = rows[0];
+    if (!u) {
+        if (user) {
+            const fallback = await db.query('SELECT * FROM users WHERE lower(email)=lower($1) LIMIT 1', [user]);
+            if (fallback[0]) return formatProfileObj(fallback[0]);
+        }
+        throw Object.assign(new Error(`User ${term} not found`), { status: 404, exc_type: 'DoesNotExistError' });
+    }
+    return formatProfileObj(u);
+}
+
+function formatProfileObj(u) {
+    const isAdmin = u.role === 'admin';
+    const isInstructor = isAdmin || u.role === 'instructor';
+    const fullName = `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email;
+
+    return {
+        name: u.email,
+        email: u.email,
+        username: u.email.split('@')[0],
+        first_name: u.first_name || '',
+        last_name: u.last_name || '',
+        full_name: fullName,
+        user_image: u.avatar_url || '',
+        cover_image: null,
+        bio: u.bio || '',
+        headline: u.headline || '',
+        language: 'en',
+        open_to: null,
+        linkedin: '',
+        github: '',
+        twitter: '',
+        roles: [isAdmin ? 'System Manager' : isInstructor ? 'Course Creator' : 'LMS Student'],
+        is_instructor: isInstructor,
+        is_system_manager: isAdmin,
+    };
+}
+
+// ── frappe.client generic reads ─────────────────────────────────────────
+const LIST_TABLES = {
+    'LMS Quiz Submission': "SELECT qs.id AS name, qs.score, qs.percentage, qs.passed, qs.created_at::text AS creation FROM quiz_submissions qs",
+    'LMS Course Review': "SELECT r.id AS name, r.rating, r.review, r.created_at::text AS creation FROM reviews r",
+    'LMS Certificate': "SELECT cert.id AS name, cert.certificate_id, cert.issued_on::text AS creation, c.title AS course_title, c.name AS course FROM certificates cert JOIN courses c ON c.id = cert.course_id",
+    'Job Opportunity': "SELECT NULL::text AS name WHERE false",
+};
+async function clientGetList({ doctype, filters = {}, limit = 20 } = {}) {
+    const base = LIST_TABLES[doctype];
+    if (!base) return [];
+    const where = [];
+    const params = [];
+    for (const [k, v] of Object.entries(filters || {})) {
+        if (k === 'member' || k === 'owner') { params.push(v); where.push(`member_id = (SELECT id FROM users WHERE lower(email)=lower($${params.length}))`); }
+        else if (k === 'quiz') {
+            params.push(v);
+            where.push(`quiz_id = (SELECT id FROM quizzes WHERE id::text=$${params.length} OR title=$${params.length})`);
+        }
+    }
+    const sql = `${base} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY creation DESC LIMIT ${Number(limit) || 20}`;
+    return db.query(sql, params);
+}
+
+const VALUE_TABLES = {
+    File: () => ({ file_name: '', file_size: 0, file_url: '' }),
+    'LMS Settings': () => ({ allow_guest_access: 1 }),
+};
+
+async function clientGetValue({ doctype, fieldname }) {
+    const fn = VALUE_TABLES[doctype];
+    const row = fn ? await fn() : {};
+    const fields = Array.isArray(fieldname) ? fieldname : String(fieldname || '').split(',');
+    const out = {};
+    for (const f of fields.map((s) => s.trim()).filter(Boolean)) out[f] = row?.[f] ?? '';
+    return out;
+}
+
+async function clientGet({ doctype, name } = {}) {
+    if (doctype === 'LMS Settings') return getLmsSettings();
+    if (doctype === 'LMS Course' && name) {
+        const c = await courseByName(name);
+        const staff = await staffList();
+        return {
+            doctype: 'LMS Course',
+            name: c.name,
+            title: c.title,
+            image: c.image || '',
+            short_introduction: c.short_introduction || '',
+            description: c.description || '',
+            category: c.category || '',
+            published: Number(c.published) ? 1 : 0,
+            featured: Number(c.featured) ? 1 : 0,
+            enable_certification: Number(c.enable_certification) ? 1 : 0,
+            video_link: c.video_link || '',
+            instructors: staff.map((s) => ({
+                instructor: s.email,
+                instructor_name: s.full_name,
+                name: s.email,
+            })),
+            paid_course: 0,
+            card_gradient: 'blue',
+            upcoming: 0,
+        };
+    }
+    return {};
+}
+
+async function clientSetValue({ doctype, name, fieldname, value } = {}) {
+    if (doctype === 'LMS Course' && name) {
+        const colMap = {
+            title: 'title',
+            short_introduction: 'short_introduction',
+            description: 'description',
+            image: 'image',
+            video_link: 'video_link',
+            category: 'category',
+            published: 'published',
+            featured: 'featured',
+            enable_certification: 'enable_certification',
+        };
+        const col = colMap[fieldname];
+        if (col) {
+            let val = value;
+            if (col === 'published' || col === 'featured' || col === 'enable_certification') {
+                val = Boolean(Number(value) || value === true || value === '1');
+            }
+            await db.query(`UPDATE courses SET ${col} = $1 WHERE name = $2 OR id::text = $2`, [val, name]);
+        }
+        return { ok: true, name };
+    }
+    return { ok: true };
+}
+
 function getPwaManifest() {
     return {
         name: 'Fractal LMS',
@@ -249,8 +868,11 @@ function getPwaManifest() {
 }
 
 module.exports = {
-    login, getUserInfo, getLmsSettings, getBranding, getSidebarSettings,
+    login, getUserInfo, getProfileDetails, getLmsSettings, getBranding, getSidebarSettings,
     getAllUsers, getPwaManifest, myCourses, createdCourses, upcomingLiveClasses,
     streakInfo, insertDoc, getCount, searchUsersByRole,
+    getCourses, getCourseCount, getCourseCategories, getCourseDetails, getRelatedCourses,
+    getCourseOutline, getLesson, saveProgress, getQuizWithQuestions, submitQuizLegacy, checkAnswer,
+    upsertChapter, createLesson, reindex, delRow, delCourse, deleteDocuments,
+    clientGetList, clientGetValue, clientGet, clientSetValue,
 };
-

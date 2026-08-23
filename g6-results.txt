@@ -1,0 +1,14 @@
+
+[GATE 6 - LEGACY DEEP JOURNEYS]
+  PASS get_courses catalog returns published cards incl. demo course
+  PASS course_categories includes seeded category
+  PASS get_course_details full contract (chapters→lessons, membership)
+  FAIL legacy save_progress persists + recomputes to exactly 100
+       -> save status → expected 200 got 500
+  FAIL quiz legacy trio: answers hidden · submit grades · check_answer
+       -> fetch failed
+  PASS TUTOR authoring loop: chapter → lesson → reindex → delete_lesson
+  PASS RED: student upsert_chapter rejected 403 PermissionError
+  PASS frappe.client generics + stub sweep answer 200 envelope
+[GATE 6] 6/8 passed
+

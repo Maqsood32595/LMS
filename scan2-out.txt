@@ -1,0 +1,14 @@
+saveProgress: 1 definition(s) at lines 217
+recomputeProgress: 1 definition(s) at lines 242
+getLesson: 1 definition(s) at lines 199
+getCourses: 1 definition(s) at lines 121
+getCourseDetails: 1 definition(s) at lines 150
+getQuizWithQuestions: 1 definition(s) at lines 253
+submitQuizLegacy: 1 definition(s) at lines 266
+checkAnswer: 1 definition(s) at lines 286
+upsertChapter: 1 definition(s) at lines 416
+createLesson: 1 definition(s) at lines 433
+clientGetList: 1 definition(s) at lines 485
+clientGetValue: 1 definition(s) at lines 511
+module.exports: 0 definition(s) at lines 
+---last saveProgress body starts at line 219---

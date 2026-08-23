@@ -1,4 +1,4 @@
-﻿/**
+/**
  * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * PIET â€” Persistent In-RAM Ephemeral Twin Â· Strict Non-Hallucinating Suite
  * Spec: D:\Hayat\workflows\persistent_in_ram_ephemeral_twin_specification.md
@@ -394,6 +394,46 @@ await t('streak info shape + search_users_by_role returns only staff', async () 
 })
 
 /* â•â• REPORT â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+/* ── GATE 6 — LEGACY DEEP JOURNEYS ─────────────────────────────────────── */
+gate('G6-LegacyDeep')
+
+await t('get_courses catalog returns published cards incl. demo course', async () => {
+    const r = await j('/api/method/lms.lms.utils.get_courses?limit=100')
+    assert(Array.isArray(r.body.message) && r.body.message.length >= 2, 'catalog too small')
+    const demo = r.body.message.find((c) => c.name === 'fractal-kernel-fundamentals')
+    assert(demo && Array.isArray(demo.instructors), 'demo card malformed')
+})
+
+await t('course_categories includes seeded category', async () => {
+    const r = await j('/api/method/lms.lms.utils.get_course_categories')
+    assert(r.body.message.some((c) => c.name === 'Engineering'), 'Engineering category missing')
+})
+
+await t('get_course_details full contract (chapters, lessons, membership)', async () => {
+    const r = await j('/api/method/lms.lms.utils.get_course_details?course=fractal-kernel-fundamentals', { headers: { Cookie: adminCookie } })
+    eq(r.res.status, 200, 'status')
+    const d = r.body.message
+    assert(d.chapters?.length >= 1 && d.chapters[0].lessons.length >= 1, 'outline missing')
+    assert(Array.isArray(d.instructors) && Array.isArray(d.related_courses), 'instructors/related missing')
+    eq(typeof d.is_instructor, 'boolean', 'is_instructor type')
+})
+
+await t('legacy save_progress persists + recomputes to 100 (exact UI endpoint)', async () => {
+    const det = await j('/api/method/lms.lms.utils.get_course_details?course=fractal-kernel-fundamentals')
+    const lessonId = det.body.message.chapters[0].lessons[0].name
+    const stu = await j('/api/method/login', { method: 'POST', body: JSON.stringify({ usr: 'smoke@test.com', pwd: 'Test1234' }) })
+    const cookie = (stu.res.headers.get('set-cookie') || '').match(/user_id=([^;]+)/)[1]
+    const res = await fetch(`${BASE}/api/method/lms.lms.doctype.course_lesson.course_lesson.save_progress`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: `user_id=${cookie}` },
+        body: JSON.stringify({ course: 'fractal-kernel-fundamentals', lesson: lessonId }),
+    })
+    eq(res.status, 200, 'save status')
+    const mine = await j('/api/method/lms.lms.api.get_my_courses', { method: 'POST', headers: { Cookie: `user_id=${cookie}` } })
+    const row = mine.body.message.find((c) => c.name === 'fractal-kernel-fundamentals')
+    assert(row && Number(row.progress) === 100, `progress=${row?.progress}`)
+})
+
 const byGate = {}
 for (const r of results) (byGate[r.gate] ||= []).push(r)
 let failed = 0
