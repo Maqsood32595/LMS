@@ -75,7 +75,7 @@ router.all('/lms.lms.api.get_streak_info', read((req) => service.streakInfo(req.
 router.all('/lms.lms.api.search_users_by_role', read((req) => service.searchUsersByRole(req.body?.roles)));
 
 // frappe.client.* — the generic client API used by the preserved UI
-router.all('/frappe.client.get_count', read((req) => service.getCount(req.query || req.body || {})));
+router.all('/frappe.client.get_count', readQ((a) => service.getCount(a)));
 router.post('/frappe.client.insert', async (req, res) => {
     try {
         const doc = await service.insertDoc(req.body?.doc || {}, req.fractalUser);
@@ -106,6 +106,7 @@ router.all('/lms.lms.utils.enroll_in_batch', readQ((a) => service.enrollInBatch(
 router.all('/lms.lms.api.get_certification_details', readQ((a) => service.getCertificationDetails(a)));
 router.all('/lms.lms.api.get_certified_participants', readQ((a) => service.getCertifiedParticipants(a)));
 router.all('/lms.lms.api.get_count_of_certified_members', readQ((a) => service.getCountOfCertifiedMembers(a)));
+router.all('/lms.lms.utils.get_reviews', readQ((a) => service.getReviews(a)));
 router.all('/lms.lms.api.get_notifications', readQ(() => []));
 router.all('/lms.lms.api.delete_documents', readQ((a) => service.deleteDocuments(a)));
 
@@ -157,7 +158,6 @@ const STUBS = {
     'lms.lms.utils.get_lesson_creation_details': {},
     'lms.lms.utils.get_order_summary': {},
     'lms.lms.utils.get_program_details': null,
-    'lms.lms.utils.get_reviews': [],
     'lms.lms.utils.get_roles': [],
     'gameplan.api.get_unsplash_photos': [],
     'lms.command_palette.search_sqlite': [],

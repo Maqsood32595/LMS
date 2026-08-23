@@ -1,4 +1,4 @@
-﻿{
+{
     "name":  "fractal-lms",
     "version":  "1.0.0",
     "description":  "Frappe LMS UI (Vue 3) powered by a Fractal Kernel grandchild-cell Node.js backend on Supabase + Google Cloud Storage",
@@ -16,7 +16,9 @@
                     "build:frontend":  "npm --prefix frontend run build",
                     "postinstall":  "node server/scripts/copy-gcs-key.js || exit 0",
                     "db:schema":  "echo Apply database/supabase_schema.sql via Supabase SQL editor or psql",
-                    "test:piet":  "node tests/piet/piet.mjs"
+                    "test:piet":  "node tests/piet/piet.mjs",
+                    "test:all": "node tests/run_all_ram.mjs",
+                    "test": "node tests/run_all_ram.mjs"
                 },
     "dependencies":  {
                          "@google-cloud/storage":  "^7.15.2",

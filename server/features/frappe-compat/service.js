@@ -542,7 +542,30 @@ async function createdCourses(input) {
 }
 
 async function upcomingLiveClasses() {
-    return [];
+    const rows = await db.query(
+        `SELECT lc.id AS name, lc.title, lc.start_time, lc.duration_minutes, lc.platform, lc.meet_link,
+                c.title AS course_title, c.name AS course,
+                u.email AS host_email, u.first_name AS host_first_name, u.last_name AS host_last_name, u.avatar_url AS host_image
+         FROM live_classes lc
+         LEFT JOIN courses c ON c.id = lc.course_id
+         LEFT JOIN users u ON u.id = lc.host_id
+         ORDER BY lc.start_time ASC`
+    );
+    return rows.map((r) => ({
+        name: r.name,
+        title: r.title,
+        start_time: r.start_time,
+        duration: r.duration_minutes,
+        platform: r.platform,
+        join_url: r.meet_link,
+        course_title: r.course_title,
+        course: r.course,
+        host: {
+            name: r.host_email,
+            full_name: `${r.host_first_name || ''} ${r.host_last_name || ''}`.trim() || r.host_email,
+            user_image: r.host_image,
+        },
+    }));
 }
 
 async function streakInfo(input) {
@@ -649,6 +672,38 @@ async function insertDoc(doc, sessionEmail) {
             issued_on: ins[0].issued_on,
         };
     }
+    if (dt === 'LMS Course Review' || dt === 'Course Review') {
+        const u = await requireUser(sessionEmail || doc.owner);
+        const c = await db.query('SELECT id, name FROM courses WHERE name=$1 OR id::text=$1 LIMIT 1', [doc.course]);
+        if (!c[0]) throw Object.assign(new Error('Course not found'), { status: 404 });
+        let rating = Number(doc.rating) || 5;
+        if (rating <= 1 && rating > 0) rating = Math.round(rating * 5);
+        const ins = await db.query(
+            `INSERT INTO reviews (member_id, course_id, rating, review)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (member_id, course_id) DO UPDATE SET rating = $3, review = $4, created_at = NOW()
+             RETURNING id, rating, review`,
+            [u.id, c[0].id, rating, doc.review || '']
+        );
+        return { doctype: dt, name: ins[0].id, id: ins[0].id, ...doc };
+    }
+    if (dt === 'LMS Live Class' || dt === 'Live Class') {
+        const u = await requireUser(sessionEmail);
+        if (u.role === 'student') {
+            throw Object.assign(new Error('Only Course Creators can schedule live classes'), { status: 403, exc_type: 'PermissionError' });
+        }
+        let courseId = null;
+        if (doc.course) {
+            const c = await db.query('SELECT id FROM courses WHERE name=$1 OR id::text=$1 LIMIT 1', [doc.course]);
+            if (c[0]) courseId = c[0].id;
+        }
+        const ins = await db.query(
+            `INSERT INTO live_classes (title, course_id, host_id, start_time, duration_minutes, platform, meet_link)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+            [doc.title || 'Live Class', courseId, u.id, doc.start_time || new Date(), Number(doc.duration_minutes) || 60, doc.platform || 'Google Meet', doc.meet_link || 'https://meet.google.com/abc-defg-hij']
+        );
+        return { doctype: dt, name: ins[0].id, id: ins[0].id, ...doc };
+    }
     if (dt === 'Discussion Topic') {
         const u = await requireUser(sessionEmail);
         const refDt = doc.reference_doctype;
@@ -703,6 +758,25 @@ async function getCount(params) {
     if (dt === 'LMS Enrollment') {
         const rows = await db.query('SELECT COUNT(*)::int AS n FROM enrollments');
         return rows[0].n;
+    }
+    if (dt === 'LMS Batch') {
+        const rows = await db.query('SELECT COUNT(*)::int AS n FROM batches WHERE published = true');
+        return rows[0].n;
+    }
+    if (dt === 'LMS Course Review') {
+        const filters = typeof params.filters === 'string' ? JSON.parse(params.filters) : params.filters || {};
+        let w = 'TRUE';
+        const p = [];
+        if (filters.course) {
+            p.push(filters.course);
+            w += ` AND course_id = (SELECT id FROM courses WHERE name=$${p.length} OR id::text=$${p.length} LIMIT 1)`;
+        }
+        if (filters.owner) {
+            p.push(filters.owner);
+            w += ` AND member_id = (SELECT id FROM users WHERE lower(email)=lower($${p.length}) LIMIT 1)`;
+        }
+        const rows = await db.query(`SELECT COUNT(*)::int AS n FROM reviews WHERE ${w}`, p);
+        return rows[0]?.n || 0;
     }
     return 0;
 }
@@ -1203,6 +1277,40 @@ async function getCountOfCertifiedMembers({ course } = {}) {
     return rows[0]?.n || 0;
 }
 
+async function getReviews({ course } = {}) {
+    let where = 'TRUE';
+    const params = [];
+    if (course) {
+        params.push(course);
+        where += ` AND r.course_id = (SELECT id FROM courses WHERE name=$${params.length} OR id::text=$${params.length} LIMIT 1)`;
+    }
+    const rows = await db.query(
+        `SELECT r.id AS name, r.rating, r.review, r.created_at AS creation,
+                c.name AS course_name,
+                u.email, u.first_name, u.last_name, u.avatar_url AS user_image
+         FROM reviews r
+         JOIN courses c ON c.id = r.course_id
+         JOIN users u ON u.id = r.member_id
+         WHERE ${where}
+         ORDER BY r.created_at DESC`,
+        params
+    );
+    return rows.map((r) => ({
+        name: r.name,
+        course: r.course_name,
+        rating: r.rating,
+        review: r.review,
+        creation: r.creation,
+        owner_details: {
+            name: r.email,
+            email: r.email,
+            username: r.email.split('@')[0],
+            full_name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email,
+            user_image: r.user_image || '',
+        },
+    }));
+}
+
 function getPwaManifest() {
     return {
         name: 'Fractal LMS',
@@ -1229,6 +1337,7 @@ module.exports = {
     getDiscussionTopics, getDiscussionReplies,
     getBatches, getBatchCount, getBatchDetails, enrollInBatch, myBatches, createdBatches,
     getCertificationDetails, getCertifiedParticipants, getCountOfCertifiedMembers,
+    getReviews,
     upsertChapter, createLesson, reindex, delRow, delCourse, deleteDocuments,
     clientGetList, clientGetValue, clientGet, clientSetValue,
 };
