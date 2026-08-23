@@ -601,6 +601,32 @@ async function insertDoc(doc, sessionEmail) {
         );
         return { doctype: dt, name: ins[0].name, ...doc };
     }
+    if (dt === 'LMS Batch') {
+        const u = await requireUser(sessionEmail);
+        if (u.role === 'student') {
+            throw Object.assign(new Error('Only Course Creators can create batches'), { status: 403, exc_type: 'PermissionError' });
+        }
+        const title = doc.title || 'Untitled Batch';
+        let name = slugify(title);
+        const clash = await db.query('SELECT 1 FROM batches WHERE name=$1', [name]);
+        if (clash[0]) name = `${name}-${Date.now().toString(36)}`;
+        const ins = await db.query(
+            `INSERT INTO batches (name, title, description, start_date, end_date, seats, published)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING name`,
+            [name, title, doc.description || doc.batch_details || '', doc.start_date || null, doc.end_date || null, Number(doc.seats) || 50, !!Number(doc.published)]
+        );
+        return { doctype: dt, name: ins[0].name, ...doc };
+    }
+    if (dt === 'LMS Batch Enrollment' || dt === 'Batch Enrollment') {
+        const u = await requireUser(sessionEmail || doc.member);
+        const b = await db.query('SELECT id, name FROM batches WHERE name=$1 OR id::text=$1 LIMIT 1', [doc.batch]);
+        if (!b[0]) throw Object.assign(new Error('Batch not found'), { status: 404 });
+        await db.query(
+            'INSERT INTO batch_enrollments (batch_id, member_id) VALUES ($1,$2) ON CONFLICT (batch_id, member_id) DO NOTHING',
+            [b[0].id, u.id]
+        );
+        return { doctype: dt, name: b[0].name, batch: b[0].name, member: u.email };
+    }
     if (dt === 'Discussion Topic') {
         const u = await requireUser(sessionEmail);
         const refDt = doc.reference_doctype;
@@ -954,6 +980,139 @@ async function clientSetValue({ doctype, name, fieldname, value } = {}) {
     return { ok: true };
 }
 
+async function getBatches({ title, category, filters, user, start = 0, limit = 24 } = {}) {
+    const f = parseFilterObj(filters);
+    const effectiveTitle = title || f.title || '';
+    const isEnrolled = f.enrolled === 1 || f.enrolled === '1' || f.enrolled === true;
+
+    let userRow = null;
+    if (user) {
+        const u = await db.query('SELECT id, role FROM users WHERE lower(email)=lower($1) LIMIT 1', [user]);
+        userRow = u[0];
+    }
+
+    const p = [];
+    let joins = '';
+    let w = 'b.published = true';
+
+    if (isEnrolled) {
+        if (!userRow) return [];
+        p.push(userRow.id);
+        joins += ` JOIN batch_enrollments be ON be.batch_id = b.id AND be.member_id = $${p.length}`;
+        w = 'TRUE';
+    }
+
+    if (effectiveTitle) {
+        p.push(`%${String(effectiveTitle).replace(/%/g, '')}%`);
+        w += ` AND (b.title ILIKE $${p.length} OR b.description ILIKE $${p.length})`;
+    }
+
+    p.push(Number(limit) || 24);
+    p.push(Number(start) || 0);
+
+    const rows = await db.query(
+        `SELECT b.id, b.name, b.title, b.description, b.start_date, b.end_date, b.seats, b.published,
+                (SELECT COUNT(*)::int FROM batch_enrollments be2 WHERE be2.batch_id = b.id) AS seat_count
+         FROM batches b ${joins}
+         WHERE ${w}
+         ORDER BY b.created_at DESC
+         LIMIT $${p.length - 1} OFFSET $${p.length}`,
+        p
+    );
+    const staff = await staffList();
+    return rows.map((r) => ({
+        ...r,
+        instructors: staff || [],
+        enrolled: false,
+    }));
+}
+
+async function getBatchCount({ filters, user } = {}) {
+    const f = parseFilterObj(filters);
+    const isEnrolled = f.enrolled === 1 || f.enrolled === '1' || f.enrolled === true;
+    let userRow = null;
+    if (user) {
+        const u = await db.query('SELECT id FROM users WHERE lower(email)=lower($1) LIMIT 1', [user]);
+        userRow = u[0];
+    }
+    const p = [];
+    let joins = '';
+    let w = 'b.published = true';
+    if (isEnrolled) {
+        if (!userRow) return 0;
+        p.push(userRow.id);
+        joins += ` JOIN batch_enrollments be ON be.batch_id = b.id AND be.member_id = $${p.length}`;
+        w = 'TRUE';
+    }
+    const rows = await db.query(`SELECT COUNT(*)::int AS n FROM batches b ${joins} WHERE ${w}`, p);
+    return rows[0]?.n || 0;
+}
+
+async function getBatchDetails({ batch, user } = {}) {
+    const rows = await db.query('SELECT * FROM batches WHERE name=$1 OR id::text=$1 LIMIT 1', [batch]);
+    if (!rows[0]) throw Object.assign(new Error('Batch not found'), { status: 404 });
+    const b = rows[0];
+    const staff = await staffList();
+    let isEnrolled = false;
+    if (user) {
+        const u = await db.query('SELECT id FROM users WHERE lower(email)=lower($1) LIMIT 1', [user]);
+        if (u[0]) {
+            const enr = await db.query('SELECT 1 FROM batch_enrollments WHERE batch_id=$1 AND member_id=$2 LIMIT 1', [b.id, u[0].id]);
+            if (enr[0]) isEnrolled = true;
+        }
+    }
+    return {
+        ...b,
+        instructors: staff || [],
+        is_enrolled: isEnrolled,
+        courses: [],
+    };
+}
+
+async function enrollInBatch({ batch, user } = {}) {
+    const u = await requireUser(user);
+    const rows = await db.query('SELECT id, name FROM batches WHERE name=$1 OR id::text=$1 LIMIT 1', [batch]);
+    if (!rows[0]) throw Object.assign(new Error('Batch not found'), { status: 404 });
+    await db.query(
+        'INSERT INTO batch_enrollments (batch_id, member_id) VALUES ($1,$2) ON CONFLICT (batch_id, member_id) DO NOTHING',
+        [rows[0].id, u.id]
+    );
+    return { ok: true, batch: rows[0].name };
+}
+
+async function myBatches(input) {
+    const email = extractUser(input);
+    if (!email) return [];
+    const u = await requireUser(email);
+    const rows = await db.query(
+        `SELECT b.id, b.name, b.title, b.description, b.start_date, b.end_date, b.seats, b.published,
+                (SELECT COUNT(*)::int FROM batch_enrollments be2 WHERE be2.batch_id = b.id) AS seat_count
+         FROM batch_enrollments be
+         JOIN batches b ON b.id = be.batch_id
+         WHERE be.member_id = $1
+         ORDER BY b.created_at DESC`,
+        [u.id]
+    );
+    const staff = await staffList();
+    return rows.map((r) => ({ ...r, instructors: staff || [], enrolled: true }));
+}
+
+async function createdBatches(input) {
+    const email = extractUser(input);
+    const u = await requireUser(email);
+    if (u.role === 'student') {
+        throw Object.assign(new Error('Only Course Creators can view created batches'), { status: 403, exc_type: 'PermissionError' });
+    }
+    const rows = await db.query(
+        `SELECT b.id, b.name, b.title, b.description, b.start_date, b.end_date, b.seats, b.published,
+                (SELECT COUNT(*)::int FROM batch_enrollments be2 WHERE be2.batch_id = b.id) AS seat_count
+         FROM batches b
+         ORDER BY b.created_at DESC`
+    );
+    const staff = await staffList();
+    return rows.map((r) => ({ ...r, instructors: staff || [], enrolled: false }));
+}
+
 function getPwaManifest() {
     return {
         name: 'Fractal LMS',
@@ -978,6 +1137,7 @@ module.exports = {
     getCourses, getCourseCount, getCourseCategories, getCourseDetails, getRelatedCourses,
     getCourseOutline, getLesson, saveProgress, getQuizWithQuestions, submitQuizLegacy, checkAnswer,
     getDiscussionTopics, getDiscussionReplies,
+    getBatches, getBatchCount, getBatchDetails, enrollInBatch, myBatches, createdBatches,
     upsertChapter, createLesson, reindex, delRow, delCourse, deleteDocuments,
     clientGetList, clientGetValue, clientGet, clientSetValue,
 };

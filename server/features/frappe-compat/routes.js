@@ -66,8 +66,8 @@ router.all('/lms.lms.api.get_all_users', read((req) => service.getAllUsers()));
 // ── Role journeys (Student home · Tutor home · enroll · create course) ──
 router.all('/lms.lms.api.get_my_courses', read((req) => service.myCourses(req.fractalUser)));
 router.all('/lms.lms.api.get_created_courses', read((req) => service.createdCourses(req.fractalUser)));
-router.all('/lms.lms.api.get_my_batches', read(() => []));
-router.all('/lms.lms.api.get_created_batches', read(() => []));
+router.all('/lms.lms.api.get_my_batches', read((req) => service.myBatches(req.fractalUser)));
+router.all('/lms.lms.api.get_created_batches', read((req) => service.createdBatches(req.fractalUser)));
 router.all('/lms.lms.api.get_my_live_classes', read((req) => service.upcomingLiveClasses()));
 router.all('/lms.lms.api.get_admin_live_classes', read((req) => service.upcomingLiveClasses()));
 router.all('/lms.lms.api.get_admin_evals', read(() => []));
@@ -85,8 +85,7 @@ router.post('/frappe.client.insert', async (req, res) => {
     }
 });
 
-// ── Core journeys: catalog · detail · lesson · quiz ──────────────────────
-
+// ── Core journeys: catalog · detail · lesson · quiz · batches · discussions
 router.all('/lms.lms.utils.get_courses', readQ((a) => service.getCourses(a)));
 router.all('/lms.lms.utils.get_course_count', readQ((a) => service.getCourseCount(a)));
 router.all('/lms.lms.utils.get_course_categories', readQ(() => service.getCourseCategories()));
@@ -100,6 +99,10 @@ router.all('/lms.lms.doctype.lms_quiz.lms_quiz.submit_quiz', readQ((a) => servic
 router.all('/lms.lms.doctype.lms_quiz.lms_quiz.check_answer', readQ((a) => service.checkAnswer(a)));
 router.all('/lms.lms.utils.get_discussion_topics', readQ((a) => service.getDiscussionTopics(a)));
 router.all('/lms.lms.utils.get_discussion_replies', readQ((a) => service.getDiscussionReplies(a)));
+router.all('/lms.lms.utils.get_batches', readQ((a) => service.getBatches(a)));
+router.all('/lms.lms.utils.get_batch_count', readQ((a) => service.getBatchCount(a)));
+router.all('/lms.lms.utils.get_batch_details', readQ((a) => service.getBatchDetails(a)));
+router.all('/lms.lms.utils.enroll_in_batch', readQ((a) => service.enrollInBatch(a)));
 router.all('/lms.lms.api.get_notifications', readQ(() => []));
 router.all('/lms.lms.api.delete_documents', readQ((a) => service.deleteDocuments(a)));
 
@@ -145,12 +148,9 @@ const STUBS = {
     'lms.lms.api.get_payment_gateway_details': {},
     'lms.lms.api.get_unsplash_photos': [],
     'lms.lms.api.validate_billing_access': true,
-    'lms.lms.utils.get_batches': [],
-    'lms.lms.utils.get_batch_details': null,
     'lms.lms.utils.get_batch_courses': [],
     'lms.lms.utils.get_batch_chart_data': {},
     'lms.lms.utils.get_batch_student_progress': [],
-    'lms.lms.utils.get_batch_count': 0,
     'lms.lms.utils.get_assessments': [],
     'lms.lms.utils.get_chart_data': {},
     'lms.lms.utils.get_course_completion_data': {},
