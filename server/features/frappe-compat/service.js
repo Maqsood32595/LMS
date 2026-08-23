@@ -627,6 +627,28 @@ async function insertDoc(doc, sessionEmail) {
         );
         return { doctype: dt, name: b[0].name, batch: b[0].name, member: u.email };
     }
+    if (dt === 'LMS Certificate') {
+        const u = await requireUser(doc.member || sessionEmail);
+        const course = await db.query('SELECT id, name FROM courses WHERE name=$1 OR id::text=$1 LIMIT 1', [doc.course]);
+        if (!course[0]) throw Object.assign(new Error('Course not found'), { status: 404 });
+        const certId = `CERT-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+        const ins = await db.query(
+            `INSERT INTO certificates (member_id, course_id, certificate_id)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (member_id, course_id) DO UPDATE SET issued_on = NOW()
+             RETURNING id, certificate_id, issued_on`,
+            [u.id, course[0].id, certId]
+        );
+        await db.query('UPDATE enrollments SET status = $1 WHERE member_id = $2 AND course_id = $3', ['Completed', u.id, course[0].id]);
+        return {
+            doctype: dt,
+            name: ins[0].certificate_id,
+            certificate_id: ins[0].certificate_id,
+            member: u.email,
+            course: course[0].name,
+            issued_on: ins[0].issued_on,
+        };
+    }
     if (dt === 'Discussion Topic') {
         const u = await requireUser(sessionEmail);
         const refDt = doc.reference_doctype;
@@ -1113,6 +1135,74 @@ async function createdBatches(input) {
     return rows.map((r) => ({ ...r, instructors: staff || [], enrolled: false }));
 }
 
+async function getCertificationDetails({ certificate_id, name } = {}) {
+    const certRef = certificate_id || name;
+    if (!certRef) return {};
+    const rows = await db.query(
+        `SELECT cert.certificate_id, cert.issued_on,
+                c.name AS course_name, c.title AS course_title,
+                u.email, u.first_name, u.last_name, u.avatar_url AS user_image
+         FROM certificates cert
+         JOIN courses c ON c.id = cert.course_id
+         JOIN users u ON u.id = cert.member_id
+         WHERE cert.certificate_id = $1 OR cert.id::text = $1 LIMIT 1`,
+        [certRef]
+    );
+    if (!rows[0]) throw Object.assign(new Error('Certificate not found'), { status: 404 });
+    const r = rows[0];
+    return {
+        certificate_id: r.certificate_id,
+        issued_on: r.issued_on,
+        course: r.course_name,
+        course_title: r.course_title,
+        student: {
+            name: r.email,
+            full_name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email,
+            user_image: r.user_image,
+        },
+        verified: true,
+    };
+}
+
+async function getCertifiedParticipants({ course, batch } = {}) {
+    let where = 'TRUE';
+    const params = [];
+    if (course) {
+        params.push(course);
+        where += ` AND cert.course_id = (SELECT id FROM courses WHERE name=$${params.length} OR id::text=$${params.length} LIMIT 1)`;
+    }
+    const rows = await db.query(
+        `SELECT cert.certificate_id, cert.issued_on,
+                c.title AS course_title,
+                u.email, u.first_name, u.last_name, u.avatar_url AS user_image
+         FROM certificates cert
+         JOIN courses c ON c.id = cert.course_id
+         JOIN users u ON u.id = cert.member_id
+         WHERE ${where}
+         ORDER BY cert.issued_on DESC`,
+        params
+    );
+    return rows.map((r) => ({
+        certificate_id: r.certificate_id,
+        issued_on: r.issued_on,
+        course_title: r.course_title,
+        member: r.email,
+        full_name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email,
+        user_image: r.user_image,
+    }));
+}
+
+async function getCountOfCertifiedMembers({ course } = {}) {
+    let where = 'TRUE';
+    const params = [];
+    if (course) {
+        params.push(course);
+        where += ` AND cert.course_id = (SELECT id FROM courses WHERE name=$${params.length} OR id::text=$${params.length} LIMIT 1)`;
+    }
+    const rows = await db.query(`SELECT COUNT(*)::int AS n FROM certificates cert WHERE ${where}`, params);
+    return rows[0]?.n || 0;
+}
+
 function getPwaManifest() {
     return {
         name: 'Fractal LMS',
@@ -1138,6 +1228,7 @@ module.exports = {
     getCourseOutline, getLesson, saveProgress, getQuizWithQuestions, submitQuizLegacy, checkAnswer,
     getDiscussionTopics, getDiscussionReplies,
     getBatches, getBatchCount, getBatchDetails, enrollInBatch, myBatches, createdBatches,
+    getCertificationDetails, getCertifiedParticipants, getCountOfCertifiedMembers,
     upsertChapter, createLesson, reindex, delRow, delCourse, deleteDocuments,
     clientGetList, clientGetValue, clientGet, clientSetValue,
 };

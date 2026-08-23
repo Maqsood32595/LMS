@@ -103,6 +103,9 @@ router.all('/lms.lms.utils.get_batches', readQ((a) => service.getBatches(a)));
 router.all('/lms.lms.utils.get_batch_count', readQ((a) => service.getBatchCount(a)));
 router.all('/lms.lms.utils.get_batch_details', readQ((a) => service.getBatchDetails(a)));
 router.all('/lms.lms.utils.enroll_in_batch', readQ((a) => service.enrollInBatch(a)));
+router.all('/lms.lms.api.get_certification_details', readQ((a) => service.getCertificationDetails(a)));
+router.all('/lms.lms.api.get_certified_participants', readQ((a) => service.getCertifiedParticipants(a)));
+router.all('/lms.lms.api.get_count_of_certified_members', readQ((a) => service.getCountOfCertifiedMembers(a)));
 router.all('/lms.lms.api.get_notifications', readQ(() => []));
 router.all('/lms.lms.api.delete_documents', readQ((a) => service.deleteDocuments(a)));
 
@@ -129,12 +132,9 @@ const STUBS = {
     'frappe.onboarding.get_onboarding_status': { steps: [] },
     'lms.lms.api.get_meta_info': [],
     'lms.lms.api.update_meta_info': { ok: true },
-    'lms.lms.api.get_count_of_certified_members': 0,
     'lms.lms.api.get_announcements': [],
     'lms.lms.api.get_badges': [],
     'lms.lms.api.get_certification_categories': [],
-    'lms.lms.api.get_certification_details': {},
-    'lms.lms.api.get_certified_participants': [],
     'lms.lms.api.get_chart_details': {},
     'lms.lms.api.get_course_assessment_progress': 0,
     'lms.lms.api.get_course_progress_distribution': [],
