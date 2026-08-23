@@ -98,6 +98,8 @@ router.all('/lms.lms.doctype.course_lesson.course_lesson.save_progress', readQ((
 router.all('/lms.lms.utils.get_quiz_with_questions', readQ((a) => service.getQuizWithQuestions(a)));
 router.all('/lms.lms.doctype.lms_quiz.lms_quiz.submit_quiz', readQ((a) => service.submitQuizLegacy(a)));
 router.all('/lms.lms.doctype.lms_quiz.lms_quiz.check_answer', readQ((a) => service.checkAnswer(a)));
+router.all('/lms.lms.utils.get_discussion_topics', readQ((a) => service.getDiscussionTopics(a)));
+router.all('/lms.lms.utils.get_discussion_replies', readQ((a) => service.getDiscussionReplies(a)));
 router.all('/lms.lms.api.get_notifications', readQ(() => []));
 router.all('/lms.lms.api.delete_documents', readQ((a) => service.deleteDocuments(a)));
 
@@ -152,8 +154,6 @@ const STUBS = {
     'lms.lms.utils.get_assessments': [],
     'lms.lms.utils.get_chart_data': {},
     'lms.lms.utils.get_course_completion_data': {},
-    'lms.lms.utils.get_discussion_replies': [],
-    'lms.lms.utils.get_discussion_topics': [],
     'lms.lms.utils.get_lesson_creation_details': {},
     'lms.lms.utils.get_order_summary': {},
     'lms.lms.utils.get_program_details': null,

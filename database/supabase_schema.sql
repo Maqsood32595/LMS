@@ -180,6 +180,24 @@ CREATE TABLE IF NOT EXISTS certificates (
     UNIQUE (member_id, course_id)
 );
 
+-- ── discussions (LMS Discussion Topic & Reply) ───────────────────────────
+CREATE TABLE IF NOT EXISTS discussions (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    course_id  UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+    lesson_id  UUID REFERENCES lessons(id) ON DELETE CASCADE,
+    member_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title      TEXT,
+    content    TEXT NOT NULL,
+    parent_id  UUID REFERENCES discussions(id) ON DELETE CASCADE,
+    pinned     BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_discussions_course ON discussions(course_id);
+CREATE INDEX IF NOT EXISTS idx_discussions_lesson ON discussions(lesson_id);
+CREATE INDEX IF NOT EXISTS idx_discussions_parent ON discussions(parent_id);
+CREATE INDEX IF NOT EXISTS idx_discussions_member ON discussions(member_id);
+
 -- ── reviews (LMS Course Review) ───────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS reviews (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -190,4 +208,3 @@ CREATE TABLE IF NOT EXISTS reviews (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (member_id, course_id)
 );
-

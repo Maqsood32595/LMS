@@ -601,6 +601,42 @@ async function insertDoc(doc, sessionEmail) {
         );
         return { doctype: dt, name: ins[0].name, ...doc };
     }
+    if (dt === 'Discussion Topic') {
+        const u = await requireUser(sessionEmail);
+        const refDt = doc.reference_doctype;
+        const refName = doc.reference_docname;
+        let courseId = null;
+        let lessonId = null;
+        if (refDt === 'LMS Course') {
+            const c = await db.query('SELECT id FROM courses WHERE name=$1 OR id::text=$1 LIMIT 1', [refName]);
+            if (c[0]) courseId = c[0].id;
+        } else if (refDt === 'Course Lesson') {
+            const l = await db.query('SELECT l.id, ch.course_id FROM lessons l JOIN chapters ch ON ch.id = l.chapter_id WHERE l.id::text=$1 OR l.title=$1 LIMIT 1', [refName]);
+            if (l[0]) { lessonId = l[0].id; courseId = l[0].course_id; }
+        }
+        if (!courseId) {
+            const cFallback = await db.query('SELECT id FROM courses ORDER BY created_at DESC LIMIT 1');
+            if (cFallback[0]) courseId = cFallback[0].id;
+        }
+        const ins = await db.query(
+            `INSERT INTO discussions (course_id, lesson_id, member_id, title, content)
+             VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+            [courseId, lessonId, u.id, doc.title || 'Untitled Discussion', '']
+        );
+        return { doctype: dt, name: ins[0].id, id: ins[0].id };
+    }
+    if (dt === 'Discussion Reply') {
+        const u = await requireUser(sessionEmail);
+        const topicId = doc.topic;
+        const topic = await db.query('SELECT id, course_id, lesson_id FROM discussions WHERE id::text=$1 LIMIT 1', [topicId]);
+        if (!topic[0]) throw Object.assign(new Error('Topic not found'), { status: 404 });
+        const ins = await db.query(
+            `INSERT INTO discussions (course_id, lesson_id, member_id, parent_id, content)
+             VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+            [topic[0].course_id, topic[0].lesson_id, u.id, topic[0].id, doc.reply || '']
+        );
+        return { doctype: dt, name: ins[0].id, id: ins[0].id, reply: doc.reply };
+    }
     if (dt === 'LMS Category') {
         const label = doc.category_name || doc.title || doc.name || '';
         return { doctype: dt, name: slugify(label) };
@@ -824,6 +860,68 @@ async function clientGet({ doctype, name } = {}) {
     return {};
 }
 
+async function getDiscussionTopics({ doctype, docname, single_thread } = {}) {
+    let where = 'd.parent_id IS NULL';
+    const params = [];
+    if (doctype === 'LMS Course' && docname) {
+        params.push(docname);
+        where += ` AND d.course_id = (SELECT id FROM courses WHERE name=$${params.length} OR id::text=$${params.length} LIMIT 1)`;
+    } else if (doctype === 'Course Lesson' && docname) {
+        params.push(docname);
+        where += ` AND d.lesson_id = (SELECT id FROM lessons WHERE id::text=$${params.length} OR title=$${params.length} LIMIT 1)`;
+    }
+    const rows = await db.query(
+        `SELECT d.id AS name, d.title, d.created_at AS creation, d.pinned,
+                (SELECT COUNT(*)::int FROM discussions r WHERE r.parent_id = d.id) AS reply_count,
+                u.email, u.first_name, u.last_name, u.avatar_url AS user_image
+         FROM discussions d
+         JOIN users u ON u.id = d.member_id
+         WHERE ${where}
+         ORDER BY d.pinned DESC, d.created_at DESC`,
+        params
+    );
+    return rows.map((r) => ({
+        name: r.name,
+        title: r.title,
+        creation: r.creation,
+        pinned: r.pinned,
+        reply_count: r.reply_count,
+        user: {
+            name: r.email,
+            email: r.email,
+            username: r.email.split('@')[0],
+            full_name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email,
+            user_image: r.user_image || '',
+        },
+    }));
+}
+
+async function getDiscussionReplies({ topic } = {}) {
+    if (!topic) return [];
+    const rows = await db.query(
+        `SELECT d.id AS name, d.parent_id AS topic, d.content AS reply, d.created_at AS creation,
+                u.email, u.first_name, u.last_name, u.avatar_url AS user_image
+         FROM discussions d
+         JOIN users u ON u.id = d.member_id
+         WHERE d.parent_id::text = $1
+         ORDER BY d.created_at ASC`,
+        [topic]
+    );
+    return rows.map((r) => ({
+        name: r.name,
+        topic: r.topic,
+        reply: r.reply,
+        creation: r.creation,
+        user: {
+            name: r.email,
+            email: r.email,
+            username: r.email.split('@')[0],
+            full_name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email,
+            user_image: r.user_image || '',
+        },
+    }));
+}
+
 async function clientSetValue({ doctype, name, fieldname, value } = {}) {
     if (doctype === 'LMS Course' && name) {
         const colMap = {
@@ -844,6 +942,12 @@ async function clientSetValue({ doctype, name, fieldname, value } = {}) {
                 val = Boolean(Number(value) || value === true || value === '1');
             }
             await db.query(`UPDATE courses SET ${col} = $1 WHERE name = $2 OR id::text = $2`, [val, name]);
+        }
+        return { ok: true, name };
+    }
+    if ((doctype === 'Discussion Reply' || doctype === 'Discussion Topic') && name) {
+        if (fieldname === 'reply' || fieldname === 'content') {
+            await db.query('UPDATE discussions SET content = $1, updated_at = NOW() WHERE id::text = $2', [value, name]);
         }
         return { ok: true, name };
     }
@@ -873,6 +977,7 @@ module.exports = {
     streakInfo, insertDoc, getCount, searchUsersByRole,
     getCourses, getCourseCount, getCourseCategories, getCourseDetails, getRelatedCourses,
     getCourseOutline, getLesson, saveProgress, getQuizWithQuestions, submitQuizLegacy, checkAnswer,
+    getDiscussionTopics, getDiscussionReplies,
     upsertChapter, createLesson, reindex, delRow, delCourse, deleteDocuments,
     clientGetList, clientGetValue, clientGet, clientSetValue,
 };
