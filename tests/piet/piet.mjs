@@ -1,17 +1,17 @@
-/**
- * ────────────────────────────────────────────────────────────────────────────
- * PIET — Persistent In-RAM Ephemeral Twin · Strict Non-Hallucinating Suite
+﻿/**
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ * PIET â€” Persistent In-RAM Ephemeral Twin Â· Strict Non-Hallucinating Suite
  * Spec: D:\Hayat\workflows\persistent_in_ram_ephemeral_twin_specification.md
  * Target: live Fractal LMS on BASE_URL (default http://localhost:5010)
  *
- * Gate 1  Falsification Probe        — assertions must be able to FAIL (red)
- * Gate 2  AST & Import Integrity      — syntax, manifests, hashed-asset graph
- * Gate 3  Zero-Mock HTTP & Storage    — real HTTP → real Supabase → real GCS
- * Gate 4  Physical Layout & State     — rendered-artifact invariants on disk/HTTP
+ * Gate 1  Falsification Probe        â€” assertions must be able to FAIL (red)
+ * Gate 2  AST & Import Integrity      â€” syntax, manifests, hashed-asset graph
+ * Gate 3  Zero-Mock HTTP & Storage    â€” real HTTP â†’ real Supabase â†’ real GCS
+ * Gate 4  Physical Layout & State     â€” rendered-artifact invariants on disk/HTTP
  *
  * Exit code 0 only when EVERY gate passes. No mocks. No yes-men.
  * Run:  node tests/piet/piet.mjs
- * ────────────────────────────────────────────────────────────────────────────
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  */
 import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
@@ -34,7 +34,7 @@ async function t(name, fn) {
     }
 }
 function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed') }
-function eq(a, b, msg) { assert(a === b, `${msg || 'eq'} → expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`) }
+function eq(a, b, msg) { assert(a === b, `${msg || 'eq'} â†’ expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`) }
 
 async function j(pathname, opts = {}) {
     const res = await fetch(`${BASE}${pathname}`, {
@@ -46,7 +46,7 @@ async function j(pathname, opts = {}) {
     return { res, body }
 }
 
-/* ══ GATE 1 — FALSIFICATION PROBE (Red Phase) ═══════════════════════════ */
+/* â•â• GATE 1 â€” FALSIFICATION PROBE (Red Phase) â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 gate('G1-Falsification')
 
 // 1.1 Harness self-test: a request to a CLOSED port must be detected as failure.
@@ -54,7 +54,7 @@ await t('harness detects unreachable server (red-capability proof)', async () =>
     const deadPort = BASE.replace(/:\d+$/, ':59990')
     let threw = false
     try { await fetch(`${deadPort}/api/features`, { signal: AbortSignal.timeout(2500) }) } catch { threw = true }
-    assert(threw, 'fetch to closed port unexpectedly succeeded — runner cannot detect failures')
+    assert(threw, 'fetch to closed port unexpectedly succeeded â€” runner cannot detect failures')
 })
 
 // 1.2 Wrong credentials MUST NOT authenticate (negative twin of login contract).
@@ -97,7 +97,7 @@ await t('stream traversal cannot escape fractal-lms/ prefix', async () => {
     else assert([400, 403, 404].includes(res.status), `unexpected status ${res.status}`)
 })
 
-/* ══ GATE 2 — AST & MODULE IMPORT INTEGRITY ═════════════════════════════ */
+/* â•â• GATE 2 â€” AST & MODULE IMPORT INTEGRITY â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 gate('G2-AST-Integrity')
 
 await t('every server/**/*.js parses under node --check (zero SyntaxError)', () => {
@@ -111,10 +111,10 @@ await t('every server/**/*.js parses under node --check (zero SyntaxError)', () 
         }
     })
     walk(`${ROOT}/server`)
-    assert(bad.length === 0, `syntax errors → ${bad.join(' | ')}`)
+    assert(bad.length === 0, `syntax errors â†’ ${bad.join(' | ')}`)
 })
 
-await t('manifests valid · unique ids/basePaths · routes exist on disk', () => {
+await t('manifests valid Â· unique ids/basePaths Â· routes exist on disk', () => {
     const seen = new Map()
     const walk = (d) => readdirSync(d, { withFileTypes: true }).forEach((e) => {
         const p = `${d}/${e.name}`
@@ -130,7 +130,7 @@ await t('manifests valid · unique ids/basePaths · routes exist on disk', () =>
         walk(p)
     })
     walk(`${ROOT}/server/features`)
-    assert(seen.size >= 8, `expected ≥8 cells, found ${seen.size}`)
+    assert(seen.size >= 8, `expected â‰¥8 cells, found ${seen.size}`)
 })
 
 await t('dist/index.html references resolve to REAL files (no dangling hashes)', () => {
@@ -140,10 +140,10 @@ await t('dist/index.html references resolve to REAL files (no dangling hashes)',
         .filter((u) => !u.startsWith('/api/')) // endpoints are contracts (Gate 3), not files
     assert(refs.length >= 10, `suspiciously few asset refs (${refs.length})`)
     const missing = refs.filter((u) => !statSync(`${DIST}${u.split('?')[0]}`, { throwIfNoEntry: false }))
-    eq(missing.length, 0, `dangling refs → ${missing.slice(0, 4).join(', ')}`)
+    eq(missing.length, 0, `dangling refs â†’ ${missing.slice(0, 4).join(', ')}`)
 })
 
-await t('bundle hygiene: no :9000 dialer · socket stub embedded · zero Jinja', () => {
+await t('bundle hygiene: no :9000 dialer Â· socket stub embedded Â· zero Jinja', () => {
     const files = readdirSync(`${DIST}/assets`).filter((f) => f.startsWith('index-') && f.endsWith('.js'))
     eq(files.length, 1, 'index bundle count')
     const js = readFileSync(`${DIST}/assets/${files[0]}`, 'utf8')
@@ -160,7 +160,7 @@ await t('kernel control plane reports every cell loaded', async () => {
     body.features.forEach((f) => assert(f.loaded, `cell ${f.id} failed to load`))
 })
 
-/* ══ GATE 3 — ZERO-MOCK HTTP & STORAGE CONTRACTS ════════════════════════ */
+/* â•â• GATE 3 â€” ZERO-MOCK HTTP & STORAGE CONTRACTS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 gate('G3-ZeroMock-HTTP')
 const RUN = Date.now().toString(36)
 let adminCookie = ''
@@ -195,7 +195,7 @@ await t('get_user_info (cookie) carries full upstream contract', async () => {
     assert(u.permissions['LMS Course']?.write === 1, 'admin must manage LMS Course')
 })
 
-await t('register → legacy login round-trip persists a REAL student row', async () => {
+await t('register â†’ legacy login round-trip persists a REAL student row', async () => {
     const email = `piet-${RUN}@test.local`
     const reg = await j('/api/v1/auth/register', {
         method: 'POST',
@@ -209,7 +209,7 @@ await t('register → legacy login round-trip persists a REAL student row', asyn
     eq(login.res.status, 200, 'legacy login status')
 })
 
-await t('create course (admin) → persisted & visible in public catalog', async () => {
+await t('create course (admin) â†’ persisted & visible in public catalog', async () => {
     const cr = await j('/api/v1/lms/courses', {
         method: 'POST', headers: { Authorization: await bearer() },
         body: JSON.stringify({ title: `PIET Gate3 ${RUN}`, short_introduction: 'piet', published: true }),
@@ -235,7 +235,7 @@ await t('enroll + lesson complete recomputes progress to exactly 100', async () 
     assert(row && Number(row.progress) === 100, `progress=${row?.progress}`)
 })
 
-await t('quiz submit grades against DB truth — correct answer = 100%', async () => {
+await t('quiz submit grades against DB truth â€” correct answer = 100%', async () => {
     const { execSync } = await import('node:child_process')
     const ids = JSON.parse(execSync(
         'node -e "require(\'dotenv\').config();const{Pool}=require(\'pg\');(async()=>{const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});const r=await p.query(\\"SELECT q.id quiz_id, qu.id question_id, o.id opt_id FROM quizzes q JOIN questions qu ON qu.quiz_id=q.id JOIN question_options o ON o.question_id=qu.id WHERE o.is_correct=true LIMIT 1\\");console.log(JSON.stringify(r.rows[0]));await p.end()})()"',
@@ -267,7 +267,7 @@ await t('GCS stream returns 302 v4 signed URL under fractal-lms/ prefix', async 
     assert(loc.includes('X-Goog-Algorithm'), 'missing v4 signature params')
 })
 
-/* ══ GATE 4 — PHYSICAL LAYOUT & STATE INVARIANTS ════════════════════════ */
+/* â•â• GATE 4 â€” PHYSICAL LAYOUT & STATE INVARIANTS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 gate('G4-Physical-Invariants')
 
 await t('served index.html matches disk bundle hash (no stale twin drift)', async () => {
@@ -284,7 +284,7 @@ await t('branding fallback assets exist on disk AND are served 200', async () =>
     }
 })
 
-await t('PWA artifacts served with correct MIME (manifest·sw·registerSW)', async () => {
+await t('PWA artifacts served with correct MIME (manifestÂ·swÂ·registerSW)', async () => {
     const man = await j('/api/method/lms.lms.api.get_pwa_manifest')
     // Web App Manifest spec needs ROOT-level keys (browsers parse it directly),
     // unlike data APIs which use the frappe {message} envelope.
@@ -297,7 +297,7 @@ await t('PWA artifacts served with correct MIME (manifest·sw·registerSW)', asy
     }
 })
 
-await t('document head state: lang=en · viewport · manifest link wired', async () => {
+await t('document head state: lang=en Â· viewport Â· manifest link wired', async () => {
     const html = await fetch(`${BASE}/`).then((r) => r.text())
     assert(html.includes('<html lang="en"'), 'html lang not static en')
     assert(html.includes('name="viewport"'), 'viewport meta missing')
@@ -310,20 +310,103 @@ await t('deep-link history fallback serves SPA shell on unknown route', async ()
     assert((await r.text()).includes('<div id="app">'), 'fallback did not serve SPA shell')
 })
 
-/* ══ REPORT ═════════════════════════════════════════════════════════════ */
+/* â•â• GATE 5 â€” ROLE JOURNEYS (Login page Â· Tutor Â· Student) â•â•â•â•â•â•â•â•â•â•â•â•â• */
+gate('G5-RoleJourneys')
+
+await t('GET /login serves standalone form Â· GET /signup serves signup', async () => {
+    const login = await fetch(`${BASE}/login`).then((r) => r.text())
+    assert(login.includes('<form id="f"') && login.includes('/api/method/login'), 'login form missing')
+    const signup = await fetch(`${BASE}/signup`).then((r) => r.text())
+    assert(signup.includes('/api/v1/auth/register'), 'signup form missing')
+})
+
+await t('STUDENT enrolls via frappe.client.insert (exact UI path)', async () => {
+    const stu = await j('/api/method/login', {
+        method: 'POST', body: JSON.stringify({ usr: 'smoke@test.com', pwd: 'Test1234' }),
+    })
+    const cookie = (stu.res.headers.get('set-cookie') || '').match(/user_id=([^;]+)/)
+    assert(cookie, 'no session cookie')
+    const ins = await j('/api/method/frappe.client.insert', {
+        method: 'POST',
+        headers: { Cookie: `user_id=${cookie[1]}` },
+        body: JSON.stringify({ doc: { doctype: 'LMS Enrollment', course: 'e2e-verification-course', member: 'smoke@test.com' } }),
+    })
+    eq(ins.res.status, 200, 'insert status')
+    const mine = await j('/api/method/lms.lms.api.get_my_courses', {
+        method: 'POST', headers: { Cookie: `user_id=${cookie[1]}` },
+    })
+    assert(Array.isArray(mine.body.message), 'my_courses not array')
+    assert(mine.body.message.some((c) => c.name === 'e2e-verification-course'), 'enrolled course missing from my_courses')
+})
+
+await t('TUTOR creates course via frappe.client.insert â†’ slug returned', async () => {
+    const admin = await j('/api/method/login', { method: 'POST', body: JSON.stringify(ADMIN) })
+    const cookie = (admin.res.headers.get('set-cookie') || '').match(/user_id=([^;]+)/)[1]
+    const ins = await j('/api/method/frappe.client.insert', {
+        method: 'POST',
+        headers: { Cookie: `user_id=${cookie}` },
+        body: JSON.stringify({ doc: { doctype: 'LMS Course', title: `Tutor Journey ${RUN}`, short_introduction: 'piet', published: 1 } }),
+    })
+    eq(ins.res.status, 200, 'insert status')
+    assert(/^tutor-journey-/.test(ins.body.message.name), `unexpected slug ${ins.body.message.name}`)
+    const created = await j('/api/method/lms.lms.api.get_created_courses', {
+        method: 'POST', headers: { Cookie: `user_id=${cookie}` },
+    })
+    assert(created.body.message.some((c) => c.name === ins.body.message.name), 'created course not listed for tutor')
+})
+
+// RED twin: a student must NOT be able to create courses
+await t('RED: student course creation rejected 403 PermissionError', async () => {
+    const stu = await j('/api/method/login', {
+        method: 'POST', body: JSON.stringify({ usr: 'smoke@test.com', pwd: 'Test1234' }),
+    })
+    const cookie = (stu.res.headers.get('set-cookie') || '').match(/user_id=([^;]+)/)[1]
+    const ins = await j('/api/method/frappe.client.insert', {
+        method: 'POST',
+        headers: { Cookie: `user_id=${cookie}` },
+        body: JSON.stringify({ doc: { doctype: 'LMS Course', title: `Sneaky ${RUN}`, published: 1 } }),
+    })
+    eq(ins.res.status, 403, 'status')
+    eq(ins.body.exc_type, 'PermissionError', 'exc_type')
+})
+
+await t('student get_created_courses also blocked 403 (role gate)', async () => {
+    const stu = await j('/api/method/login', {
+        method: 'POST', body: JSON.stringify({ usr: 'smoke@test.com', pwd: 'Test1234' }),
+    })
+    const cookie = (stu.res.headers.get('set-cookie') || '').match(/user_id=([^;]+)/)[1]
+    const r = await j('/api/method/lms.lms.api.get_created_courses', { method: 'POST', headers: { Cookie: `user_id=${cookie}` } })
+    eq(r.res.status, 403, 'status')
+})
+
+await t('streak info shape + search_users_by_role returns only staff', async () => {
+    const admin = await j('/api/v1/auth/login', { method: 'POST', body: JSON.stringify(ADMIN) })
+    const streak = await j('/api/method/lms.lms.api.get_streak_info', { headers: { Cookie: adminCookie } })
+    assert('current_streak' in streak.body.message && 'longest_streak' in streak.body.message, 'streak keys missing')
+    const hits = await j('/api/method/lms.lms.api.search_users_by_role', {
+        method: 'POST', headers: { Authorization: `Bearer ${admin.body.token}` },
+        body: JSON.stringify({ roles: JSON.stringify(['Course Creator']) }),
+    })
+    assert(hits.body.message.length >= 1, 'no staff returned')
+    hits.body.message.forEach((u) => assert(!u.value.includes('smoke@test'), 'student leaked into staff search'))
+    const count = await j('/api/method/frappe.client.get_count?doctype=Notification%20Log')
+    eq(count.body.message, 0, 'notification count')
+})
+
+/* â•â• REPORT â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const byGate = {}
 for (const r of results) (byGate[r.gate] ||= []).push(r)
 let failed = 0
-console.log('\n╔═══ PIET · Strict Non-Hallucinating Suite ═══╗')
+console.log('\nâ•”â•â•â• PIET Â· Strict Non-Hallucinating Suite â•â•â•â•—')
 for (const g of Object.keys(byGate)) {
     const rows = byGate[g]
-    console.log(`\n║ ${g}  ${rows.filter((r) => r.ok).length}/${rows.length}`)
+    console.log(`\nâ•‘ ${g}  ${rows.filter((r) => r.ok).length}/${rows.length}`)
     for (const r of rows) {
-        if (r.ok) console.log(`║   ✅ ${r.name}`)
-        else { failed++; console.log(`║   ❌ ${r.name}\n║      ↳ ${r.detail}`) }
+        if (r.ok) console.log(`â•‘   âœ… ${r.name}`)
+        else { failed++; console.log(`â•‘   âŒ ${r.name}\nâ•‘      â†³ ${r.detail}`) }
     }
 }
-console.log(`\n╚══ ${results.length - failed}/${results.length} passed · ${failed} FAILED ══╝\n`)
+console.log(`\nâ•šâ•â• ${results.length - failed}/${results.length} passed Â· ${failed} FAILED â•â•â•\n`)
 process.exit(failed ? 1 : 0)
 
 

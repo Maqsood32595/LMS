@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign Up · Fractal LMS</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}
+  body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f3f5f7;color:#1c1c1c}
+  .card{width:min(400px,92vw);background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.08);padding:32px}
+  h1{font-size:20px;font-weight:600;margin-bottom:4px}
+  p.sub{font-size:13px;color:#6b7280;margin-bottom:24px}
+  label{display:block;font-size:13px;font-weight:500;margin:14px 0 6px}
+  input{width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;outline:none}
+  input:focus{border-color:#2490ef;box-shadow:0 0 0 3px rgba(36,144,239,.15)}
+  button{width:100%;margin-top:22px;padding:11px;background:#2490ef;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
+  button:hover{background:#1c7fd6}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  .err{display:none;margin-top:14px;padding:10px 12px;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:8px;font-size:13px}
+  .alt{margin-top:18px;text-align:center;font-size:13px;color:#6b7280}
+  .alt a{color:#2490ef;text-decoration:none;font-weight:500}
+  .brand{display:block;text-align:center;margin-bottom:22px;font-size:15px;font-weight:700;letter-spacing:.3px;color:#2490ef;text-decoration:none}
+  .row{display:flex;gap:12px}.row>div{flex:1}
+</style>
+</head>
+<body>
+<div class="card">
+  <a class="brand" href="/">◆ FRACTAL LMS</a>
+  <h1>Create your account</h1>
+  <p class="sub">Join as a student — start learning in seconds.</p>
+  <form id="f">
+    <div class="row">
+      <div><label for="fn">First name</label><input id="fn" required placeholder="Ada"></div>
+      <div><label for="ln">Last name</label><input id="ln" placeholder="Lovelace"></div>
+    </div>
+    <label for="em">Email</label>
+    <input id="em" type="email" required placeholder="you@example.com">
+    <label for="pw">Password</label>
+    <input id="pw" type="password" minlength="6" required placeholder="min. 6 characters">
+    <div class="err" id="e"></div>
+    <button id="b" type="submit">Sign Up &amp; Continue</button>
+  </form>
+  <div class="alt">Already registered? <a href="/login">Log in</a></div>
+</div>
+<script>
+const f = document.getElementById('f'), e = document.getElementById('e'), b = document.getElementById('b')
+f.addEventListener('submit', async (ev) => {
+  ev.preventDefault()
+  b.disabled = true; e.style.display = 'none'
+  try {
+    const r = await fetch('/api/v1/auth/register', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: f.em.value.trim(), password: f.pw.value, first_name: f.fn.value.trim(), last_name: f.ln.value.trim() })
+    })
+    const j = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(j.error || 'Signup failed')
+    // auto-login to set the cookie the app session reads
+    const l = await fetch('/api/method/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ usr: f.em.value.trim(), pwd: f.pw.value })
+    })
+    if (!l.ok) throw new Error('Account created — please log in')
+    const params = new URLSearchParams(location.search)
+    location.href = params.get('redirect-to') || '/courses'
+  } catch (err) {
+    e.textContent = err.message; e.style.display = 'block'; b.disabled = false
+  }
+})
+</script>
+</body>
+</html>

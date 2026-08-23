@@ -143,6 +143,9 @@
 - [x] **Gate 3 — Zero-Mock HTTP & Storage (7/7)**: real bcrypt login sets session cookie · full upstream user_info contract from cookie · register→legacy-login persists real row · admin course create → public catalog visibility · enroll+complete → progress exactly 100 · quiz graded against DB truth incl. RED twin (wrong answer must NOT pass) · GCS v4 signed URL 302 under prefix
 - [x] **Gate 4 — Physical Layout & State (5/5)**: served HTML == disk bundle (no stale twin drift) · branding assets exist & served · PWA artifacts correct MIME (root-level manifest per W3C spec) · head state (lang=en, viewport, manifest wired) · deep-link SPA fallback
 - [x] **Result: 23/23 passed · 0 FAILED** against live Supabase + live GCS
+- [x] **Gate 5 — Role Journeys (6/6)**: `/login` & `/signup` standalone pages served by new `auth-pages` cell · student enrolls via `frappe.client.insert` (exact UI path) → appears in `get_my_courses` · tutor creates course via same endpoint → slug returned + listed in `get_created_courses` · RED: student course-creation rejected `403 PermissionError` · student `get_created_courses` blocked 403 · streak-info shape + `search_users_by_role` returns staff only · `frappe.client.get_count`
+- [x] **Full suite: 29/29 · 0 FAILED**
+- [x] New compat endpoints: `get_my_courses` · `get_created_courses` · `get_my_batches`/`get_created_batches` · `get_my_live_classes`/`get_admin_live_classes` · `get_admin_evals` · `get_streak_info` · `search_users_by_role` · `frappe.client.insert` (LMS Enrollment / LMS Course / LMS Category whitelist) · `frappe.client.get_count`
 
 ### PIET 4-Tier Promotion Pipeline (this repo)
 | Stage | Environment | Trigger |

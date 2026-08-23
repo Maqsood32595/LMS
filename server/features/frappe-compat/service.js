@@ -107,6 +107,130 @@ async function getAllUsers() {
     return rows.map((r) => ({ ...r, full_name: `${r.first_name} ${r.last_name}`.trim() }));
 }
 
+// ── Role journeys ────────────────────────────────────────────────────────
+const COURSE_CARD = 'c.name, c.title, c.image, c.short_introduction, c.category, c.published, c.enable_certification';
+
+async function requireUser(email) {
+    if (!email) throw Object.assign(new Error('Not logged in'), { status: 401, exc_type: 'AuthenticationError' });
+    const rows = await db.query('SELECT * FROM users WHERE lower(email)=lower($1) LIMIT 1', [email]);
+    if (!rows[0]) throw Object.assign(new Error('User not found'), { status: 401, exc_type: 'AuthenticationError' });
+    return rows[0];
+}
+
+async function myCourses(email) {
+    const u = await requireUser(email);
+    return db.query(
+        `SELECT ${COURSE_CARD.replace(/c\./g, 'c.') + ', '} e.progress
+         FROM enrollments e JOIN courses c ON c.id = e.course_id
+         WHERE e.member_id = $1 ORDER BY e.enrolled_on DESC`,
+        [u.id]
+    );
+}
+
+async function createdCourses(email) {
+    const u = await requireUser(email);
+    if (u.role === 'student') {
+        throw Object.assign(new Error('Only Course Creators may view created courses'), { status: 403, exc_type: 'PermissionError' });
+    }
+    return db.query(`SELECT ${COURSE_CARD} FROM courses c ORDER BY c.created_at DESC`);
+}
+
+async function upcomingLiveClasses() {
+    return db.query(
+        'SELECT id, title, start_time, duration_minutes, platform, meet_link FROM live_classes WHERE start_time > now() ORDER BY start_time ASC LIMIT 10'
+    );
+}
+
+async function streakInfo(email) {
+    if (!email) return { current_streak: 0, longest_streak: 0 };
+    const u = await requireUser(email);
+    const rows = await db.query(
+        `SELECT to_char(cp.completed_at, 'YYYY-MM-DD') AS d FROM course_progress cp WHERE cp.member_id = $1
+         UNION SELECT to_char(qs.created_at, 'YYYY-MM-DD') FROM quiz_submissions qs WHERE qs.member_id = $1`,
+        [u.id]
+    );
+    const dates = [...new Set(rows.map((r) => r.d))].sort();
+    let cur = 0, longest = 0, run = 0, prev = null;
+    for (const d of dates) {
+        run = prev && (new Date(d) - new Date(prev)) === 86400000 ? run + 1 : 1;
+        longest = Math.max(longest, run);
+        prev = d;
+    }
+    // current streak counts back from today/yesterday
+    const day = 86400000;
+    const today = new Date().toISOString().slice(0, 10);
+    let cursor = dates.includes(today) ? today : dates.includes(new Date(Date.now() - day).toISOString().slice(0, 10)) ? new Date(Date.now() - day).toISOString().slice(0, 10) : null;
+    while (cursor && dates.includes(cursor)) { cur++; cursor = new Date(new Date(cursor) - day).toISOString().slice(0, 10); }
+    return { current_streak: cur, longest_streak: Math.max(longest, cur) };
+}
+
+function slugify(t) {
+    return String(t).toLowerCase().replace(/[^\w]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || `doc-${Date.now()}`;
+}
+
+// frappe.client.insert — whitelisted doctypes only
+async function insertDoc(doc, sessionEmail) {
+    const dt = doc.doctype;
+    if (dt === 'LMS Enrollment') {
+        const u = await requireUser(sessionEmail || doc.member);
+        const course = await db.query('SELECT id FROM courses WHERE name = $1 LIMIT 1', [doc.course]);
+        if (!course[0]) throw Object.assign(new Error('Course not found'), { status: 404 });
+        await db.query(
+            'INSERT INTO enrollments (member_id, course_id) VALUES ($1,$2) ON CONFLICT (member_id, course_id) DO NOTHING',
+            [u.id, course[0].id]
+        );
+        return { doctype: dt, name: doc.course, course: doc.course, member: u.email };
+    }
+    if (dt === 'LMS Course') {
+        const u = await requireUser(sessionEmail);
+        if (u.role === 'student') {
+            throw Object.assign(new Error('Only Course Creators can create courses'), { status: 403, exc_type: 'PermissionError' });
+        }
+        const title = doc.title || 'Untitled Course';
+        let name = slugify(title);
+        const clash = await db.query('SELECT 1 FROM courses WHERE name=$1', [name]);
+        if (clash[0]) name = `${name}-${Date.now().toString(36)}`;
+        const ins = await db.query(
+            `INSERT INTO courses (name, title, short_introduction, description, image, video_link, category, published)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING name`,
+            [name, title, doc.short_introduction || '', doc.description || '', doc.image || '', doc.video_link || '', doc.category || '', !!Number(doc.published)]
+        );
+        return { doctype: dt, name: ins[0].name, ...doc };
+    }
+    if (dt === 'LMS Category') {
+        const label = doc.category_name || doc.title || doc.name || '';
+        return { doctype: dt, name: slugify(label) };
+    }
+    throw Object.assign(new Error(`Insert not permitted for ${dt}`), { status: 403 });
+}
+
+// frappe.client.get_count — minimal counters the UI polls
+async function getCount(params) {
+    const dt = params.doctype || '';
+    if (dt === 'Notification Log') return 0;
+    if (dt === 'LMS Course') {
+        const rows = await db.query('SELECT COUNT(*)::int AS n FROM courses');
+        return rows[0].n;
+    }
+    if (dt === 'LMS Enrollment') {
+        const rows = await db.query('SELECT COUNT(*)::int AS n FROM enrollments');
+        return rows[0].n;
+    }
+    return 0;
+}
+
+async function searchUsersByRole(rolesJson) {
+    let roles = [];
+    try { roles = typeof rolesJson === 'string' ? JSON.parse(rolesJson) : rolesJson || []; } catch { roles = []; }
+    const staffRoles = ['Course Creator', 'Moderator', 'Batch Evaluator', 'System Manager'];
+    const wantStaff = roles.some((r) => staffRoles.includes(r));
+    const where = wantStaff ? "role IN ('admin','instructor')" : 'TRUE';
+    const rows = await db.query(
+        `SELECT email AS value, email AS name, first_name, last_name, avatar_url AS user_image FROM users WHERE ${where} LIMIT 20`
+    );
+    return rows.map((r) => ({ ...r, label: `${r.first_name} ${r.last_name}`.trim(), description: r.email }));
+}
+
 function getPwaManifest() {
     return {
         name: 'Fractal LMS',
@@ -124,5 +248,9 @@ function getPwaManifest() {
     };
 }
 
-module.exports = { login, getUserInfo, getLmsSettings, getBranding, getSidebarSettings, getAllUsers, getPwaManifest };
+module.exports = {
+    login, getUserInfo, getLmsSettings, getBranding, getSidebarSettings,
+    getAllUsers, getPwaManifest, myCourses, createdCourses, upcomingLiveClasses,
+    streakInfo, insertDoc, getCount, searchUsersByRole,
+};
 

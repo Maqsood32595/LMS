@@ -54,7 +54,30 @@ router.all('/lms.lms.api.get_sidebar_settings', read((req) => service.getSidebar
 router.all('/lms.lms.api.get_translations', read(() => ({})));
 router.all('/frappe.apps.get_apps', read(() => []));
 router.all('/lms.lms.utils.get_programs', read(() => []));
-router.all('/lms.lms.api.get_all_users', read(() => service.getAllUsers()));
+router.all('/lms.lms.api.get_all_users', read((req) => service.getAllUsers()));
+
+// ── Role journeys (Student home · Tutor home · enroll · create course) ──
+router.all('/lms.lms.api.get_my_courses', read((req) => service.myCourses(req.fractalUser)));
+router.all('/lms.lms.api.get_created_courses', read((req) => service.createdCourses(req.fractalUser)));
+router.all('/lms.lms.api.get_my_batches', read(() => []));
+router.all('/lms.lms.api.get_created_batches', read(() => []));
+router.all('/lms.lms.api.get_my_live_classes', read((req) => service.upcomingLiveClasses()));
+router.all('/lms.lms.api.get_admin_live_classes', read((req) => service.upcomingLiveClasses()));
+router.all('/lms.lms.api.get_admin_evals', read(() => []));
+router.all('/lms.lms.api.get_streak_info', read((req) => service.streakInfo(req.fractalUser)));
+router.all('/lms.lms.api.search_users_by_role', read((req) => service.searchUsersByRole(req.body?.roles)));
+
+// frappe.client.* — the generic client API used by the preserved UI
+router.all('/frappe.client.get_count', read((req) => service.getCount(req.query || req.body || {})));
+router.post('/frappe.client.insert', async (req, res) => {
+    try {
+        const doc = await service.insertDoc(req.body?.doc || {}, req.fractalUser);
+        res.json({ message: doc });
+    } catch (e) {
+        res.status(e.status || 500).json({ exc_type: e.exc_type || 'ServerError', messages: [e.message] });
+    }
+});
+
 
 // ── PWA manifest (kept from earlier iteration) ───────────────────────────
 router.get('/lms.lms.api.get_pwa_manifest', (_req, res) => res.json(service.getPwaManifest()));

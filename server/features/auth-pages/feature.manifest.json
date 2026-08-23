@@ -1,0 +1,10 @@
+{
+    "id": "auth-pages",
+    "name": "Auth Pages",
+    "description": "Server-rendered /login and /signup pages (the SPA navigates here expecting Frappe's page).",
+    "version": "1.0.0",
+    "enabled": true,
+    "basePath": "/login",
+    "routes": "./routes.js",
+    "additionalRoutes": [{ "path": "/signup", "file": "./signup-routes.js" }]
+}
