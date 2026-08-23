@@ -25,3 +25,12 @@ openrouter LMS.txt
 Thumbs.db
 .server.pid
 frontend/vite.config.js.timestamp-*
+
+# Temporary test logs & snapshots
+*.txt
+*.mp4
+*.webm
+*.mkv
+tests/Error.mp4
+server/endpoint-inventory.txt
+
