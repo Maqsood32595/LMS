@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import assert from 'node:assert/strict';
 
 const BASE = 'http://localhost:5010';
@@ -118,6 +119,25 @@ async function j(url, opts = {}) {
     console.log('  ✅ 7. Verified role security guard (student rejected 403)');
 
     console.log('\n🎉 ALL 7 BATCHES & COHORTS IN-RAM TESTS PASSED!\n');
+
+    // ── Teardown: clean up test batch and student created during this run ──
+    try {
+        const { default: pg } = await import('pg');
+        const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+        await client.connect();
+        await client.query('DELETE FROM batches WHERE name = $1', [batchName]);
+        await client.query('DELETE FROM users WHERE email = $1', [studentEmail]);
+        await client.query(`
+            DELETE FROM batches
+            WHERE name LIKE 'fractal-kernel-cohort-%'
+               OR name LIKE '%-mt%'
+               OR name = 'illegal-batch'
+               OR title = 'Illegal Batch'
+        `);
+        await client.query(`DELETE FROM users WHERE email LIKE 'student-%@example.com'`);
+        await client.end();
+    } catch (_) { /* non-fatal — tests already passed */ }
+
     process.exit(0);
 })().catch((err) => {
     console.error('❌ Batches test failed:', err);
