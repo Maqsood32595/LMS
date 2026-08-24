@@ -70,11 +70,31 @@ Ask yourself these questions before touching any code:
 
 - All external tests live in: d:\Mujahid\LMS2\tests\
 - Tests are .mjs files (ESM), no framework needed — pure Node 22 fetch + assert
-- Tests must register, act, assert, and clean up (delete test data from DB)
+- Tests MUST follow this exact lifecycle — no exceptions:
+    1. SETUP   — insert/create only what is needed for the test
+    2. ACT     — call the API endpoint being tested
+    3. ASSERT  — verify the response
+    4. TEARDOWN (in a finally block) — DELETE every record created during the test
+- TEARDOWN IS MANDATORY. Even if the test crashes, the finally block must run cleanup SQL.
+- Never leave ghost records in the DB. Ghost records appear in the live UI and confuse the user.
 - Tests run against the local server at http://localhost:5010
 - Use DATABASE_URL from .env for cleanup queries
 - Use pg from d:/Mujahid/LMS/node_modules/ via file:/// ESM import
 - Never commit these test files to git
+
+### Teardown Template (copy into every new test)
+```js
+const { Client } = await import('file:///d:/Mujahid/LMS/node_modules/pg/lib/index.js');
+const pgClient = new Client({ connectionString: process.env.DATABASE_URL });
+await pgClient.connect();
+try {
+  // ... setup, act, assert ...
+} finally {
+  // ALWAYS runs — cleans up even if test throws
+  await pgClient.query('DELETE FROM <table> WHERE <test_identifier_column> = $1', [testId]);
+  await pgClient.end();
+}
+```
 
 ---
 
