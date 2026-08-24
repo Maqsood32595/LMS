@@ -54,7 +54,10 @@ const read = (fn) => (req, res) => {
 };
 
 const readQ = (fn) => (req, res) => {
-    Promise.resolve(fn({ ...req.query, ...(req.body || {}), user: req.fractalUser }))
+    const payload = { ...req.query, ...(req.body || {}) };
+    if (!payload.user && req.fractalUser) payload.user = req.fractalUser;
+    payload.sessionUser = req.fractalUser;
+    Promise.resolve(fn(payload))
         .then((data) => res.json({ message: data }))
         .catch((e) => res.status(e.status || 500).json({ exc_type: e.exc_type || 'ServerError', messages: [e.message] }));
 };
@@ -115,6 +118,10 @@ router.all('/lms.lms.api.get_count_of_certified_members', readQ((a) => service.g
 router.all('/lms.lms.utils.get_reviews', readQ((a) => service.getReviews(a)));
 router.all('/lms.lms.api.get_notifications', readQ(() => []));
 router.all('/lms.lms.api.delete_documents', readQ((a) => service.deleteDocuments(a)));
+router.all('/lms.lms.api.get_members', readQ((a) => service.getMembers(a)));
+router.all('/lms.lms.api.get_member', readQ((a) => service.getMember(a)));
+router.all('/lms.lms.api.save_role', readQ((a) => service.saveRole(a)));
+router.all('/lms.lms.api.delete_member', readQ((a) => service.deleteMember(a)));
 
 // frappe.client generic reads/writes used across pages
 router.all('/frappe.client.get_list', readQ((a) => service.clientGetList(a)));
@@ -273,7 +280,6 @@ const STUBS = {
     'lms.lms.api.save_certificate_details': null,
     'lms.lms.api.update_sidebar_item': null,
     'lms.lms.api.get_evaluator_details': null,
-    'lms.lms.api.get_members': [],
     'lms.lms.email_account.create_email_account': null,
     'lms.lms.payments.get_payment_link': null,
     'lms.lms.doctype.lms_batch.lms_batch.create_live_class': null,

@@ -439,11 +439,12 @@ await t('legacy save_progress persists + recomputes to 100 (exact UI endpoint)',
     assert(row && Number(row.progress) === 100, `progress=${row?.progress}`)
 })
 
-// Teardown: Clean up temporary test courses created during run
+// Teardown: Clean up temporary test courses and users created during run
 try {
     const { Pool } = await import('pg');
     const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
     await pool.query("DELETE FROM courses WHERE name LIKE 'piet-gate3-%' OR name LIKE 'tutor-journey-%' OR title LIKE 'PIET Gate3 %' OR title LIKE 'Tutor Journey %' OR title = 'Should Fail'");
+    await pool.query("DELETE FROM users WHERE email LIKE 'piet-%@test.local' OR email LIKE 'profile-test-%@example.com' OR email LIKE 'newmember-%@example.com'");
     await pool.end();
 } catch (_) {}
 

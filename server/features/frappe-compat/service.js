@@ -756,6 +756,32 @@ async function insertDoc(doc, sessionEmail) {
         );
         return { doctype: dt, name: ins[0].id, id: ins[0].id, title: ins[0].title };
     }
+    if (dt === 'User') {
+        const u = await requireUser(sessionEmail);
+        if (u.role !== 'admin' && u.role !== 'instructor') {
+            throw Object.assign(new Error('Permission denied: only staff can add members'), { status: 403, exc_type: 'PermissionError' });
+        }
+        const email = (doc.email || doc.name || '').trim().toLowerCase();
+        if (!email) throw Object.assign(new Error('Email is required'), { status: 400 });
+        const existing = await db.query('SELECT * FROM users WHERE lower(email) = lower($1)', [email]);
+        if (existing[0]) {
+            if (doc.first_name || doc.last_name) {
+                await db.query(
+                    'UPDATE users SET first_name = COALESCE($1, first_name), last_name = COALESCE($2, last_name) WHERE id = $3',
+                    [doc.first_name || null, doc.last_name || null, existing[0].id]
+                );
+            }
+            return { doctype: dt, name: existing[0].email, email: existing[0].email, first_name: existing[0].first_name, last_name: existing[0].last_name };
+        }
+        const bcrypt = require('bcryptjs');
+        const defaultHash = await bcrypt.hash('Welcome123!', 10);
+        const ins = await db.query(
+            `INSERT INTO users (email, first_name, last_name, role, password_hash)
+             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+            [email, doc.first_name || '', doc.last_name || '', 'student', defaultHash]
+        );
+        return { doctype: dt, name: ins[0].email, email: ins[0].email, first_name: ins[0].first_name, last_name: ins[0].last_name };
+    }
     throw Object.assign(new Error(`Insert not permitted for ${dt}`), { status: 403 });
 }
 
@@ -1456,6 +1482,99 @@ async function updateUserField(email, column, value) {
     return { ok: true };
 }
 
+function userRolesList(role) {
+    if (role === 'admin') return ['Moderator', 'Course Creator', 'LMS Student', 'Batch Evaluator'];
+    if (role === 'instructor') return ['Course Creator', 'LMS Student', 'Batch Evaluator'];
+    return ['LMS Student'];
+}
+
+async function getMembers({ search, start = 0, role, limit = 20 } = {}) {
+    let where = 'TRUE';
+    const params = [];
+    if (search && String(search).trim()) {
+        params.push(`%${String(search).trim().toLowerCase()}%`);
+        where += ` AND (lower(email) LIKE $${params.length} OR lower(first_name || ' ' || last_name) LIKE $${params.length})`;
+    }
+    if (role && role !== 'All') {
+        if (role === 'Moderator') where += ` AND role = 'admin'`;
+        else if (role === 'Course Creator' || role === 'Batch Evaluator') where += ` AND role IN ('admin', 'instructor')`;
+    }
+    params.push(Math.max(0, Number(start) || 0));
+    const offsetParam = params.length;
+    params.push(Math.min(100, Math.max(1, Number(limit) || 20)));
+    const limitParam = params.length;
+
+    const rows = await db.query(
+        `SELECT id, email, first_name, last_name, role, avatar_url
+         FROM users
+         WHERE ${where}
+         ORDER BY created_at DESC, first_name ASC
+         OFFSET $${offsetParam} LIMIT $${limitParam}`,
+        params
+    );
+
+    return rows.map((u) => ({
+        name: u.email,
+        username: u.email.split('@')[0],
+        email: u.email,
+        full_name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email,
+        roles: userRolesList(u.role),
+        user_image: u.avatar_url,
+    }));
+}
+
+async function getMember({ member } = {}) {
+    if (!member) throw Object.assign(new Error('Member email/id is required'), { status: 400 });
+    const rows = await db.query(
+        `SELECT id, email, first_name, last_name, role, avatar_url, bio, headline
+         FROM users
+         WHERE lower(email) = lower($1) OR id::text = $1
+         LIMIT 1`,
+        [member]
+    );
+    const u = rows[0];
+    if (!u) return null;
+    return {
+        name: u.email,
+        username: u.email.split('@')[0],
+        email: u.email,
+        first_name: u.first_name,
+        last_name: u.last_name,
+        full_name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email,
+        roles: userRolesList(u.role),
+        user_image: u.avatar_url,
+    };
+}
+
+async function saveRole({ user, role, value } = {}) {
+    if (!user || !role) throw Object.assign(new Error('user and role are required'), { status: 400 });
+    const rows = await db.query('SELECT id, email, role FROM users WHERE lower(email) = lower($1) OR id::text = $1 LIMIT 1', [user]);
+    const u = rows[0];
+    if (!u) throw Object.assign(new Error('User not found'), { status: 404 });
+
+    let newRole = u.role;
+    const v = Number(value);
+
+    if (v === 1) {
+        if (role === 'Moderator') newRole = 'admin';
+        else if ((role === 'Course Creator' || role === 'Batch Evaluator') && newRole !== 'admin') newRole = 'instructor';
+    } else {
+        if (role === 'Moderator' && newRole === 'admin') newRole = 'instructor';
+        else if ((role === 'Course Creator' || role === 'Batch Evaluator') && newRole === 'instructor') newRole = 'student';
+    }
+
+    if (newRole !== u.role) {
+        await db.query('UPDATE users SET role = $1 WHERE id = $2', [newRole, u.id]);
+    }
+    return { ok: true, role: newRole };
+}
+
+async function deleteMember({ user } = {}) {
+    if (!user) throw Object.assign(new Error('user is required'), { status: 400 });
+    await db.query('DELETE FROM users WHERE lower(email) = lower($1) OR id::text = $1', [user]);
+    return { ok: true };
+}
+
 module.exports = {
     login, getUserInfo, getProfileDetails, getLmsSettings, getBranding, getSidebarSettings,
     getAllUsers, getPwaManifest, myCourses, createdCourses, upcomingLiveClasses,
@@ -1468,4 +1587,5 @@ module.exports = {
     getReviews,
     upsertChapter, createLesson, reindex, delRow, delCourse, deleteDocuments,
     clientGetList, clientGetValue, clientGet, clientSetValue, updateUserField,
+    getMembers, getMember, saveRole, deleteMember,
 };
