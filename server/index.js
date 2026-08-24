@@ -11,19 +11,19 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// CORS — same-origin is always fine; allow configured origins + any localhost dev port
+// CORS — same-origin is always fine; allow configured origins + localhost + onrender.com domains
 const allowedOrigins = (process.env.CORS_ORIGIN || '')
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
 const LOCALHOST_RE = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+const RENDER_RE = /^https?:\/\/[a-zA-Z0-9-]+\.onrender\.com$/i;
 
 app.use(
     cors({
         origin(origin, cb) {
-            // No Origin header (normal navigation) or same-origin/module-crossorigin
-            // requests from our own host are always allowed.
-            if (!origin || LOCALHOST_RE.test(origin) || allowedOrigins.includes(origin)) {
+            // No Origin header (same-origin navigation) or localhost or Render URL or allowedOrigins
+            if (!origin || LOCALHOST_RE.test(origin) || RENDER_RE.test(origin) || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
                 return cb(null, true);
             }
             cb(new Error('Not allowed by CORS'));
@@ -35,7 +35,7 @@ app.use(
 // Static SPA — serve the built Frappe LMS frontend in production
 const spaDir = path.resolve(__dirname, '../frontend/dist');
 if (fs.existsSync(spaDir)) {
-    app.use(express.static(spaDir));
+    app.use(express.static(spaDir, { maxAge: '1h' }));
 }
 
 // ── Boot the Kernel — discovers and mounts all features automatically ──
@@ -56,7 +56,11 @@ kernel.boot(app, './features').then(() => {
     });
 
     // SPA fallback — any non-API GET serves index.html (client-side routing)
+    // Never serve index.html for static assets or files with extensions to prevent MIME type errors
     app.get(/^(?!\/api).*/, (req, res) => {
+        if (req.path.startsWith('/assets/') || /\.[a-zA-Z0-9]+$/.test(req.path)) {
+            return res.status(404).send('Asset not found');
+        }
         const indexPath = path.join(spaDir, 'index.html');
         if (fs.existsSync(indexPath)) return res.sendFile(indexPath);
         res.status(200).send('Fractal LMS API is running. Build the frontend (`npm run build`) to serve the SPA.');
