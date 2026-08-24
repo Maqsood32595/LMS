@@ -238,7 +238,7 @@ await t('enroll + lesson complete recomputes progress to exactly 100', async () 
 await t('quiz submit grades against DB truth â€” correct answer = 100%', async () => {
     const { execSync } = await import('node:child_process')
     const ids = JSON.parse(execSync(
-        'node -e "require(\'dotenv\').config();const{Pool}=require(\'pg\');(async()=>{const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});const r=await p.query(\\"SELECT q.id quiz_id, qu.id question_id, o.id opt_id FROM quizzes q JOIN questions qu ON qu.quiz_id=q.id JOIN question_options o ON o.question_id=qu.id WHERE o.is_correct=true LIMIT 1\\");console.log(JSON.stringify(r.rows[0]));await p.end()})()"',
+        'node -e "require(\'dotenv\').config();const{Pool}=require(\'pg\');(async()=>{const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});const r=await p.query(\\"SELECT q.id quiz_id, qu.id question_id, o.id opt_id FROM quizzes q JOIN questions qu ON qu.quiz_id=q.id JOIN question_options o ON o.question_id=qu.id WHERE o.is_correct=true AND q.title=\'Fractal Basics\' LIMIT 1\\");console.log(JSON.stringify(r.rows[0]));await p.end()})()"',
         { cwd: ROOT, encoding: 'utf8' }
     ))
     const admin = await j('/api/v1/auth/login', { method: 'POST', body: JSON.stringify(ADMIN) })
