@@ -38,7 +38,50 @@ if (fs.existsSync(spaDir)) {
     app.use(express.static(spaDir, { maxAge: '1h' }));
 }
 
+// ── Universal Authenticated GCS Media Proxy: /files/* and /api/v1/files/* ──
+// Serves images (avatars, thumbnails, badges) with caching & streams videos with seek support
+const gcs = require('./config/gcloud');
+async function handleFileStream(req, res) {
+    try {
+        const rawPath = req.params[0] || req.path.replace(/^\/(?:api\/v1\/)?files\//, '');
+        const cleanPath = decodeURIComponent(rawPath).replace(/\.\./g, '').replace(/^\/+/, '');
+        if (!cleanPath) return res.status(400).json({ error: 'File path required' });
+
+        const objectPath = gcs.scopedPath(cleanPath);
+
+        // Videos & audio: issue v4 signed URL redirect for streaming
+        const isVideo = /\.(mp4|webm|ogg|mov|m4v|mp3|wav)$/i.test(cleanPath);
+        if (isVideo) {
+            const url = await gcs.signedUrl(objectPath, 7200);
+            return res.redirect(302, url);
+        }
+
+        // Images, PDFs, and static media: stream directly from GCS with caching
+        const metadata = await gcs.getMetadata(objectPath).catch(() => null);
+        if (!metadata) {
+            return res.status(404).send('File not found in storage');
+        }
+
+        const contentType = metadata.contentType || 'application/octet-stream';
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+        if (metadata.size) res.setHeader('Content-Length', metadata.size);
+        if (metadata.etag) res.setHeader('ETag', metadata.etag);
+
+        gcs.createReadStream(objectPath).on('error', (err) => {
+            console.error('[file-stream]', err.message);
+            if (!res.headersSent) res.status(500).send('Error streaming file');
+        }).pipe(res);
+    } catch (e) {
+        console.error('[file-stream]', e.message);
+        if (!res.headersSent) res.status(500).send('Storage error');
+    }
+}
+app.get('/files/*', handleFileStream);
+app.get('/api/v1/files/*', handleFileStream);
+
 // ── Boot the Kernel — discovers and mounts all features automatically ──
+
 kernel.boot(app, './features').then(() => {
 
     // Built-in: expose feature list for Admin UI or debugging

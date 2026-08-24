@@ -4,8 +4,9 @@ const multer = require('multer');
 const service = require('./service');
 const gcs = require('../../config/gcloud');
 
-// Multer: store file in memory (we stream directly to GCS)
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+// Multer: store file in memory (we stream directly to GCS) — 500MB limit for high-res images & video
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } });
+
 
 function parseCookies(header = '') {
     const out = {};

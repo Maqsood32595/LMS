@@ -57,12 +57,15 @@ function getPrefix() {
     return process.env.GCS_PREFIX || 'fractal-lms/';
 }
 
-/** Build a full object path inside the fractal-lms/ namespace. */
+/** Build a full object path inside the fractal-lms/ namespace (idempotent). */
 function scopedPath(...segments) {
-    return getPrefix() + segments.filter(Boolean).join('/');
+    const raw = segments.filter(Boolean).join('/').replace(/^\/+/, '');
+    const prefix = getPrefix();
+    return raw.startsWith(prefix) ? raw : prefix + raw;
 }
 
-/** Upload a buffer → public-ish object; returns { objectPath, publicUrl }. */
+
+/** Upload a buffer → GCS object; returns { objectPath, publicUrl, gcsUrl }. */
 async function uploadFile(buffer, { folder = 'uploads', filename, contentType }) {
     const b = getBucket();
     if (!b) throw new Error('Storage not configured');
@@ -74,12 +77,19 @@ async function uploadFile(buffer, { folder = 'uploads', filename, contentType })
     await file.save(buffer, {
         contentType: contentType || 'application/octet-stream',
         resumable: false,
-        metadata: { cacheControl: 'private, max-age=3600' },
+        metadata: { cacheControl: 'public, max-age=86400' },
     });
-    return { objectPath, publicUrl: publicUrlFor(objectPath) };
+
+    const prefix = getPrefix();
+    const relativePath = objectPath.startsWith(prefix) ? objectPath.slice(prefix.length) : objectPath;
+    return {
+        objectPath,
+        publicUrl: `/files/${relativePath}`,
+        gcsUrl: publicUrlFor(objectPath),
+    };
 }
 
-/** Public URL form (bucket may still be private — use signed URLs for playback). */
+/** Public URL form (bucket may still be private — use signed URLs or /files/* proxy for playback). */
 function publicUrlFor(objectPath) {
     const bucketName = process.env.GOOGLE_CLOUD_BUCKET_NAME;
     return `https://storage.googleapis.com/${bucketName}/${objectPath}`;
@@ -97,4 +107,29 @@ async function signedUrl(objectPath, ttlSeconds = Number(process.env.SIGNED_URL_
     return url;
 }
 
-module.exports = { getBucket, getPrefix, scopedPath, uploadFile, signedUrl, publicUrlFor };
+/** Create read stream from GCS for media proxying with range support */
+function createReadStream(objectPath, options = {}) {
+    const b = getBucket();
+    if (!b) throw new Error('Storage not configured');
+    return b.file(objectPath).createReadStream(options);
+}
+
+/** Get object metadata from GCS (content-type, content-length, etc.) */
+async function getMetadata(objectPath) {
+    const b = getBucket();
+    if (!b) throw new Error('Storage not configured');
+    const [metadata] = await b.file(objectPath).getMetadata();
+    return metadata;
+}
+
+module.exports = {
+    getBucket,
+    getPrefix,
+    scopedPath,
+    uploadFile,
+    signedUrl,
+    publicUrlFor,
+    createReadStream,
+    getMetadata,
+};
+
