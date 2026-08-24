@@ -15,9 +15,9 @@
 			<div
 				v-else
 				data-testid="profile-fields"
-				class="grid grid-cols-1 gap-6 text-base md:grid-cols-2 md:gap-10"
+				class="grid grid-cols-1 gap-4 text-sm md:grid-cols-2 md:gap-6 max-h-[62vh] overflow-y-auto px-1 py-0.5"
 			>
-				<div class="space-y-4">
+				<div class="space-y-3">
 					<Uploader
 						v-model="profile.image"
 						:label="__('Profile Image')"
@@ -34,7 +34,7 @@
 					<FormControl v-model="profile.github" :label="__('GitHub ID')" />
 					<FormControl v-model="profile.twitter" :label="__('Twitter ID')" />
 				</div>
-				<div class="space-y-4">
+				<div class="space-y-3">
 					<FormControl
 						v-model="profile.open_to"
 						type="select"
@@ -48,18 +48,19 @@
 						doctype="Language"
 					/>
 					<div>
-						<div class="mb-1.5 text-p-sm-medium text-ink-gray-7">
+						<div class="mb-1 text-p-sm-medium text-ink-gray-7">
 							{{ __('Bio') }}
 						</div>
 						<RichTextEditor
 							:fixedMenu="true"
 							@change="(val) => (profile.bio = val)"
 							:content="profile.bio"
-							editorClass="prose-sm py-2 px-2 min-h-[280px] border-outline-gray-2 hover:border-outline-gray-3 rounded-b-md bg-surface-gray-3"
+							editorClass="prose-sm py-1.5 px-2 min-h-[110px] max-h-[160px] overflow-y-auto border-outline-gray-2 hover:border-outline-gray-3 rounded-b-md bg-surface-gray-3"
 						/>
 					</div>
 				</div>
 			</div>
+
 		</template>
 		<template #actions>
 			<div v-if="!refusal && profileData" class="flex items-center justify-end">

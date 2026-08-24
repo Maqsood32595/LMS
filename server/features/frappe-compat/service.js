@@ -892,7 +892,8 @@ async function getProfileDetails({ username, user } = {}) {
     if (!term) throw Object.assign(new Error('Username is required'), { status: 400 });
 
     const rows = await db.query(
-        `SELECT id, email, first_name, last_name, role, avatar_url, bio, headline
+        `SELECT id, email, first_name, last_name, role, avatar_url, bio, headline,
+                linkedin, github, twitter, language, open_to
          FROM users
          WHERE lower(email) = lower($1)
             OR lower(email) LIKE lower($1 || '@%')
@@ -911,6 +912,7 @@ async function getProfileDetails({ username, user } = {}) {
     return formatProfileObj(u);
 }
 
+
 function formatProfileObj(u) {
     const isAdmin = u.role === 'admin';
     const isInstructor = isAdmin || u.role === 'instructor';
@@ -927,16 +929,17 @@ function formatProfileObj(u) {
         cover_image: null,
         bio: u.bio || '',
         headline: u.headline || '',
-        language: 'en',
-        open_to: null,
-        linkedin: '',
-        github: '',
-        twitter: '',
+        language: u.language || 'en',
+        open_to: u.open_to || null,
+        linkedin: u.linkedin || '',
+        github: u.github || '',
+        twitter: u.twitter || '',
         roles: [isAdmin ? 'System Manager' : isInstructor ? 'Course Creator' : 'LMS Student'],
         is_instructor: isInstructor,
         is_system_manager: isAdmin,
     };
 }
+
 
 // ── frappe.client generic reads ─────────────────────────────────────────
 const LIST_TABLES = {
@@ -1104,7 +1107,63 @@ async function getDiscussionReplies({ topic } = {}) {
     }));
 }
 
-async function clientSetValue({ doctype, name, fieldname, value } = {}) {
+async function clientSetValue({ doctype, name, fieldname, value, user } = {}) {
+    if (doctype === 'User' && (name || user)) {
+        const target = (name || user || '').trim();
+        // The profile edit form sends fieldname as an object (batch update) with all profile
+        // fields at once. Support both single-field (fieldname string + value) and batch forms.
+        const USER_COL_MAP = {
+            first_name: 'first_name',
+            last_name:  'last_name',
+            headline:   'headline',
+            bio:        'bio',
+            linkedin:   'linkedin',
+            github:     'github',
+            twitter:    'twitter',
+            language:   'language',
+            open_to:    'open_to',
+            user_image: 'avatar_url',
+            image:      'avatar_url',
+        };
+
+        const updates = typeof fieldname === 'object' && fieldname !== null
+            ? fieldname                           // batch form: { first_name, last_name, … }
+            : { [fieldname]: value };             // single form: fieldname='headline', value='…'
+
+        // De-duplicate columns (e.g. user_image and image both map to avatar_url)
+        // PostgreSQL throws a syntax error if the same column appears multiple times in SET
+        const colValues = {};
+        for (const [k, v] of Object.entries(updates)) {
+            const col = USER_COL_MAP[k];
+            if (!col) continue;
+            if (colValues[col] === undefined || (v && !colValues[col])) {
+                colValues[col] = v ?? null;
+            }
+        }
+
+        const sets   = [];
+        const params = [];
+        for (const [col, val] of Object.entries(colValues)) {
+            params.push(val);
+            sets.push(`${col} = $${params.length}`);
+        }
+
+        if (sets.length > 0 && target) {
+            params.push(target);
+            const pIdx = params.length;
+            await db.query(
+                `UPDATE users SET ${sets.join(', ')}
+                 WHERE lower(email) = lower($${pIdx})
+                    OR lower(email) LIKE lower($${pIdx} || '@%')
+                    OR lower(first_name || ' ' || last_name) = lower($${pIdx})
+                    OR id::text = $${pIdx}`,
+                params
+            );
+        }
+
+        return { name: target, doctype: 'User' };
+    }
+
     if (doctype === 'LMS Course' && name) {
         const colMap = {
             title: 'title',
@@ -1135,6 +1194,7 @@ async function clientSetValue({ doctype, name, fieldname, value } = {}) {
     }
     return { ok: true };
 }
+
 
 async function getBatches({ title, category, filters, user, start = 0, limit = 24 } = {}) {
     const f = parseFilterObj(filters);
