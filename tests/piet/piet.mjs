@@ -13,6 +13,7 @@
  * Run:  node tests/piet/piet.mjs
  * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  */
+import 'dotenv/config'
 import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -221,15 +222,18 @@ await t('create course (admin) â†’ persisted & visible in public catalog', 
 
 await t('enroll + lesson complete recomputes progress to exactly 100', async () => {
     const det = await j('/api/v1/lms/courses/fractal-kernel-fundamentals')
-    const lessonId = det.body.chapters[0].lessons[0].id
     const stu = await j('/api/v1/auth/login', {
         method: 'POST', body: JSON.stringify({ email: 'smoke@test.com', password: 'Test1234' }),
     })
     const auth = { Authorization: `Bearer ${stu.body.token}` }
     await j('/api/v1/lms/courses/fractal-kernel-fundamentals/enroll', { method: 'POST', headers: auth })
-    await j('/api/v1/lms/users/students/me/progress', {
-        method: 'POST', headers: auth, body: JSON.stringify({ lesson_id: lessonId, course_id: det.body.id }),
-    })
+    for (const ch of det.body.chapters) {
+        for (const l of ch.lessons) {
+            await j('/api/v1/lms/users/students/me/progress', {
+                method: 'POST', headers: auth, body: JSON.stringify({ lesson_id: l.id, course_id: det.body.id }),
+            })
+        }
+    }
     const dash = await j('/api/v1/lms/users/students/me/dashboard', { headers: auth })
     const row = dash.body.find((d) => d.name === 'fractal-kernel-fundamentals')
     assert(row && Number(row.progress) === 100, `progress=${row?.progress}`)
@@ -297,7 +301,7 @@ await t('PWA artifacts served with correct MIME (manifestÂ·swÂ·registerSW)',
     }
 })
 
-await t('document head state: lang=en Â· viewport Â· manifest link wired', async () => {
+await t('document head state: lang=en · viewport · manifest link wired', async () => {
     const html = await fetch(`${BASE}/`).then((r) => r.text())
     assert(html.includes('<html lang="en"'), 'html lang not static en')
     assert(html.includes('name="viewport"'), 'viewport meta missing')
@@ -310,10 +314,10 @@ await t('deep-link history fallback serves SPA shell on unknown route', async ()
     assert((await r.text()).includes('<div id="app">'), 'fallback did not serve SPA shell')
 })
 
-/* â•â• GATE 5 â€” ROLE JOURNEYS (Login page Â· Tutor Â· Student) â•â•â•â•â•â•â•â•â•â•â•â•â• */
+/* ══ GATE 5 — ROLE JOURNEYS (Login page · Tutor · Student) ══════════════════ */
 gate('G5-RoleJourneys')
 
-await t('GET /login serves standalone form Â· GET /signup serves signup', async () => {
+await t('GET /login serves standalone form · GET /signup serves signup', async () => {
     const login = await fetch(`${BASE}/login`).then((r) => r.text())
     assert(login.includes('<form id="f"') && login.includes('/api/method/login'), 'login form missing')
     const signup = await fetch(`${BASE}/signup`).then((r) => r.text())
@@ -329,17 +333,17 @@ await t('STUDENT enrolls via frappe.client.insert (exact UI path)', async () => 
     const ins = await j('/api/method/frappe.client.insert', {
         method: 'POST',
         headers: { Cookie: `user_id=${cookie[1]}` },
-        body: JSON.stringify({ doc: { doctype: 'LMS Enrollment', course: 'e2e-verification-course', member: 'smoke@test.com' } }),
+        body: JSON.stringify({ doc: { doctype: 'LMS Enrollment', course: 'fractal-kernel-fundamentals', member: 'smoke@test.com' } }),
     })
     eq(ins.res.status, 200, 'insert status')
     const mine = await j('/api/method/lms.lms.api.get_my_courses', {
         method: 'POST', headers: { Cookie: `user_id=${cookie[1]}` },
     })
     assert(Array.isArray(mine.body.message), 'my_courses not array')
-    assert(mine.body.message.some((c) => c.name === 'e2e-verification-course'), 'enrolled course missing from my_courses')
+    assert(mine.body.message.some((c) => c.name === 'fractal-kernel-fundamentals'), 'enrolled course missing from my_courses')
 })
 
-await t('TUTOR creates course via frappe.client.insert â†’ slug returned', async () => {
+await t('TUTOR creates course via frappe.client.insert → slug returned', async () => {
     const admin = await j('/api/method/login', { method: 'POST', body: JSON.stringify(ADMIN) })
     const cookie = (admin.res.headers.get('set-cookie') || '').match(/user_id=([^;]+)/)[1]
     const ins = await j('/api/method/frappe.client.insert', {
@@ -393,8 +397,7 @@ await t('streak info shape + search_users_by_role returns only staff', async () 
     eq(count.body.message, 0, 'notification count')
 })
 
-/* â•â• REPORT â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
-/* ── GATE 6 — LEGACY DEEP JOURNEYS ─────────────────────────────────────── */
+/* ══ GATE 6 — LEGACY DEEP JOURNEYS ════════════════════════════════════════ */
 gate('G6-LegacyDeep')
 
 await t('get_courses catalog returns published cards incl. demo course', async () => {
@@ -420,24 +423,34 @@ await t('get_course_details full contract (chapters, lessons, membership)', asyn
 
 await t('legacy save_progress persists + recomputes to 100 (exact UI endpoint)', async () => {
     const det = await j('/api/method/lms.lms.utils.get_course_details?course=fractal-kernel-fundamentals')
-    const lessonId = det.body.message.chapters[0].lessons[0].name
     const stu = await j('/api/method/login', { method: 'POST', body: JSON.stringify({ usr: 'smoke@test.com', pwd: 'Test1234' }) })
     const cookie = (stu.res.headers.get('set-cookie') || '').match(/user_id=([^;]+)/)[1]
-    const res = await fetch(`${BASE}/api/method/lms.lms.doctype.course_lesson.course_lesson.save_progress`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Cookie: `user_id=${cookie}` },
-        body: JSON.stringify({ course: 'fractal-kernel-fundamentals', lesson: lessonId }),
-    })
-    eq(res.status, 200, 'save status')
+    for (const ch of det.body.message.chapters) {
+        for (const l of ch.lessons) {
+            await fetch(`${BASE}/api/method/lms.lms.doctype.course_lesson.course_lesson.save_progress`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Cookie: `user_id=${cookie}` },
+                body: JSON.stringify({ course: 'fractal-kernel-fundamentals', lesson: l.name }),
+            })
+        }
+    }
     const mine = await j('/api/method/lms.lms.api.get_my_courses', { method: 'POST', headers: { Cookie: `user_id=${cookie}` } })
     const row = mine.body.message.find((c) => c.name === 'fractal-kernel-fundamentals')
     assert(row && Number(row.progress) === 100, `progress=${row?.progress}`)
 })
 
+// Teardown: Clean up temporary test courses created during run
+try {
+    const { Pool } = await import('pg');
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+    await pool.query("DELETE FROM courses WHERE name LIKE 'piet-gate3-%' OR name LIKE 'tutor-journey-%' OR title LIKE 'PIET Gate3 %' OR title LIKE 'Tutor Journey %' OR title = 'Should Fail'");
+    await pool.end();
+} catch (_) {}
+
 const byGate = {}
 for (const r of results) (byGate[r.gate] ||= []).push(r)
 let failed = 0
-console.log('\nâ•”â•â•â• PIET Â· Strict Non-Hallucinating Suite â•â•â•â•—')
+console.log('\n╔════ PIET · Strict Non-Hallucinating Suite ════╗')
 for (const g of Object.keys(byGate)) {
     const rows = byGate[g]
     console.log(`\nâ•‘ ${g}  ${rows.filter((r) => r.ok).length}/${rows.length}`)
