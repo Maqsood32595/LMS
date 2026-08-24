@@ -1328,6 +1328,14 @@ function getPwaManifest() {
     };
 }
 
+/** Update a single column on the users table (used by upload_file to persist avatar_url) */
+async function updateUserField(email, column, value) {
+    const ALLOWED = ['avatar_url', 'cover_image_url', 'bio', 'headline', 'linkedin_id', 'github_id', 'twitter_id'];
+    if (!ALLOWED.includes(column)) throw Object.assign(new Error(`Column '${column}' is not updatable`), { status: 400 });
+    await db.query(`UPDATE users SET ${column} = $1 WHERE lower(email) = lower($2)`, [value, email]);
+    return { ok: true };
+}
+
 module.exports = {
     login, getUserInfo, getProfileDetails, getLmsSettings, getBranding, getSidebarSettings,
     getAllUsers, getPwaManifest, myCourses, createdCourses, upcomingLiveClasses,
@@ -1339,5 +1347,5 @@ module.exports = {
     getCertificationDetails, getCertifiedParticipants, getCountOfCertifiedMembers,
     getReviews,
     upsertChapter, createLesson, reindex, delRow, delCourse, deleteDocuments,
-    clientGetList, clientGetValue, clientGet, clientSetValue,
+    clientGetList, clientGetValue, clientGet, clientSetValue, updateUserField,
 };

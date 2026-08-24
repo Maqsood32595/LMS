@@ -1,6 +1,11 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const service = require('./service');
+const gcs = require('../../config/gcloud');
+
+// Multer: store file in memory (we stream directly to GCS)
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 function parseCookies(header = '') {
     const out = {};
@@ -128,8 +133,96 @@ router.all('/lms.lms.api.delete_lesson', readQ((a) => service.delRow('lessons', 
 router.all('/lms.lms.api.delete_chapter', readQ((a) => service.delRow('chapters', a?.chapter, a?.user)));
 router.all('/lms.lms.api.delete_course', readQ((a) => service.delCourse(a?.course, a?.user)));
 
+// ── POST /api/method/upload_file  ───────────────────────────────────────
+// frappe-ui FileUploader posts multipart/form-data here for all file/image
+// uploads (profile photo, cover image, course image, lesson attachments, …).
+//
+// Files are routed to doctype-aware GCS paths so each entity's uploads are
+// namespaced cleanly:
+//
+//   User / user_image  → fractal-lms/users/<username>/avatar/
+//   User / cover_image → fractal-lms/users/<username>/cover/
+//   LMS Course / image → fractal-lms/courses/<course>/image/
+//   Course Lesson      → fractal-lms/content/lessons/<lesson>/
+//   LMS Batch          → fractal-lms/batches/<batch>/files/
+//   anything else      → fractal-lms/attachments/<doctype>/<docname>/
+//
+// Returns Frappe-standard { message: { file_url, file_name, file_size, is_private } }.
+router.post('/upload_file', upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ exc_type: 'ValidationError', message: 'No file provided' });
+        }
+
+        const doctype   = req.body?.doctype   || '';
+        const docname   = req.body?.docname   || '';
+        const fieldname = req.body?.fieldname || '';
+        const isPrivate = req.body?.is_private === '1';
+
+        // Sanitise a string into a safe GCS path segment
+        const slug = (s) => (s || '').toLowerCase().replace(/[^a-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'misc';
+
+        // ── Route to the correct GCS sub-folder ────────────────────────────
+        let gcsFolder;
+        if (doctype === 'User') {
+            const userSlug = slug(docname || req.fractalUser || 'unknown');
+            if (fieldname === 'user_image' || fieldname === 'image') {
+                gcsFolder = `users/${userSlug}/avatar`;
+            } else if (fieldname === 'cover_image') {
+                gcsFolder = `users/${userSlug}/cover`;
+            } else {
+                gcsFolder = `users/${userSlug}/files`;
+            }
+        } else if (doctype === 'LMS Course' || doctype === 'Course') {
+            gcsFolder = `courses/${slug(docname)}/image`;
+        } else if (doctype === 'Course Lesson' || doctype === 'LMS Lesson') {
+            gcsFolder = `content/lessons/${slug(docname)}`;
+        } else if (doctype === 'LMS Batch') {
+            gcsFolder = `batches/${slug(docname)}/files`;
+        } else if (doctype) {
+            gcsFolder = `attachments/${slug(doctype)}/${slug(docname)}`;
+        } else {
+            gcsFolder = 'uploads/misc';
+        }
+
+        const { publicUrl } = await gcs.uploadFile(req.file.buffer, {
+            folder: gcsFolder,
+            filename: req.file.originalname,
+            contentType: req.file.mimetype,
+        });
+
+        // Auto-persist the URL to the right DB column when we know the User
+        if (doctype === 'User' && (docname || req.fractalUser)) {
+            const email  = req.fractalUser || docname;
+            const colMap = {
+                user_image:  'avatar_url',
+                image:       'avatar_url',
+                cover_image: 'cover_image_url',
+            };
+            const col = colMap[fieldname];
+            if (col) await service.updateUserField(email, col, publicUrl);
+        }
+
+        res.json({
+            message: {
+                file_url:   publicUrl,
+                file_name:  req.file.originalname,
+                file_size:  req.file.size,
+                is_private: isPrivate ? 1 : 0,
+            },
+        });
+    } catch (e) {
+        console.error('[upload_file]', e.message);
+        res.status(500).json({ exc_type: 'ServerError', message: e.message });
+    }
+});
+
 // ── Long-tail stubs: remaining calls answer 200 with safe payloads ───────
 const STUBS = {
+    // Session operations — we are stateless JWT; just acknowledge and let
+    // the client reload its own user resource.
+    'frappe.sessions.clear': { message: 'ok' },
+    'frappe.sessions.get_boot_info': {},
     'frappe.onboarding.get_onboarding_status': { steps: [] },
     'lms.lms.api.get_meta_info': [],
     'lms.lms.api.update_meta_info': { ok: true },

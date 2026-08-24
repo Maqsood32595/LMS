@@ -1,38 +1,39 @@
 {
-    "name":  "fractal-lms",
-    "version":  "1.0.0",
-    "description":  "Frappe LMS UI (Vue 3) powered by a Fractal Kernel grandchild-cell Node.js backend on Supabase + Google Cloud Storage",
-    "private":  true,
-    "main":  "server/index.js",
-    "engines":  {
-                    "node":  "\u003e=18"
-                },
-    "scripts":  {
-                    "start":  "node server/index.js",
-                    "dev":  "concurrently -n kernel,spa -c blue,magenta \"npm run dev:server\" \"npm run dev:frontend\"",
-                    "dev:server":  "nodemon server/index.js",
-                    "dev:frontend":  "npm --prefix frontend run dev -- --port 8080",
-                    "build":  "npm --prefix frontend install \u0026\u0026 npm --prefix frontend run build",
-                    "build:frontend":  "npm --prefix frontend run build",
-                    "postinstall":  "node server/scripts/copy-gcs-key.js || exit 0",
-                    "db:schema":  "echo Apply database/supabase_schema.sql via Supabase SQL editor or psql",
-                    "test:piet":  "node tests/piet/piet.mjs",
-                    "test:all": "node tests/run_all_ram.mjs",
-                    "test": "node tests/run_all_ram.mjs"
-                },
-    "dependencies":  {
-                         "@google-cloud/storage":  "^7.15.2",
-                         "@supabase/supabase-js":  "^2.47.10",
-                         "bcryptjs":  "^2.4.3",
-                         "cors":  "^2.8.5",
-                         "dotenv":  "^16.4.7",
-                         "express":  "^4.21.2",
-                         "jsonwebtoken":  "^9.0.2",
-                         "pg":  "^8.13.1"
-                     },
-    "devDependencies":  {
-                            "concurrently":  "^9.1.2",
-                            "nodemon":  "^3.1.9"
-                        },
-    "license":  "MIT"
+    "name": "fractal-lms",
+    "version": "1.0.0",
+    "description": "Frappe LMS UI (Vue 3) powered by a Fractal Kernel grandchild-cell Node.js backend on Supabase + Google Cloud Storage",
+    "private": true,
+    "main": "server/index.js",
+    "engines": {
+        "node": ">=18"
+    },
+    "scripts": {
+        "start": "node server/index.js",
+        "dev": "concurrently -n kernel,spa -c blue,magenta \"npm run dev:server\" \"npm run dev:frontend\"",
+        "dev:server": "nodemon server/index.js",
+        "dev:frontend": "npm --prefix frontend run dev -- --port 8080",
+        "build": "npm --prefix frontend install && npm --prefix frontend run build",
+        "build:frontend": "npm --prefix frontend run build",
+        "postinstall": "node server/scripts/copy-gcs-key.js || exit 0",
+        "db:schema": "echo Apply database/supabase_schema.sql via Supabase SQL editor or psql",
+        "test:piet": "node tests/piet/piet.mjs",
+        "test:all": "node tests/run_all_ram.mjs",
+        "test": "node tests/run_all_ram.mjs"
+    },
+    "dependencies": {
+        "@google-cloud/storage": "^7.15.2",
+        "@supabase/supabase-js": "^2.47.10",
+        "bcryptjs": "^2.4.3",
+        "cors": "^2.8.5",
+        "dotenv": "^16.4.7",
+        "express": "^4.21.2",
+        "jsonwebtoken": "^9.0.2",
+        "multer": "^2.2.0",
+        "pg": "^8.13.1"
+    },
+    "devDependencies": {
+        "concurrently": "^9.1.2",
+        "nodemon": "^3.1.9"
+    },
+    "license": "MIT"
 }

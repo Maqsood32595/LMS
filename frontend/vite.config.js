@@ -22,16 +22,22 @@ export default defineConfig(async ({ mode }) => {
 		plugins: [
 			{
 				// ── FRACTAL: neutralize frappe-ui's bench socket ─────────────
-				// FrappeUI's install() calls its bundled initSocket(), which
-				// dials the bench realtime port (:9000) on every page load.
-				// Redirect that module to our optional-realtime stub.
+				// FrappeUI's plugin.ts imports initSocket from './socketio' and
+				// calls it during install(), dialing bench realtime port :9000.
+				// We also have src/socket.js which uses initSocket. Both are
+				// intercepted here and redirected to our optional-realtime stub.
+				//
+				// Regex catches:
+				//   './socketio'            (plugin.ts relative import)
+				//   'utils/socketio'        (absolute-style import)
+				//   '../../src/utils/socketio' (DataImport relative import)
 				name: 'fractal-noop-frappe-socket',
 				enforce: 'pre',
 				resolveId(id, importer) {
 					if (
 						importer &&
 						importer.includes('frappe-ui') &&
-						/utils[/\\]socketio(\.(ts|js))?$/.test(id)
+						/(?:^|[/\\])socketio(?:\.(ts|js))?$/.test(id)
 					) {
 						return path.resolve(__dirname, 'src/stubs/frappe-noop-socket.ts')
 					}

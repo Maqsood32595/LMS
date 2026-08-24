@@ -6,16 +6,22 @@
 
 -- ── users (Frappe User) ─────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS users (
-    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email         TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    first_name    TEXT DEFAULT '',
-    last_name     TEXT DEFAULT '',
-    role          TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('student','instructor','admin')),
-    avatar_url    TEXT,
-    bio           TEXT,
-    headline      TEXT,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email            TEXT UNIQUE NOT NULL,
+    password_hash    TEXT NOT NULL,
+    first_name       TEXT DEFAULT '',
+    last_name        TEXT DEFAULT '',
+    role             TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('student','instructor','admin')),
+    avatar_url       TEXT,
+    cover_image_url  TEXT,
+    bio              TEXT,
+    headline         TEXT,
+    linkedin         TEXT DEFAULT '',
+    github           TEXT DEFAULT '',
+    twitter          TEXT DEFAULT '',
+    language         TEXT DEFAULT 'en',
+    open_to          TEXT DEFAULT '',
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ── courses (LMS Course) ────────────────────────────────────────────────────
