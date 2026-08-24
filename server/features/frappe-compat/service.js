@@ -744,6 +744,18 @@ async function insertDoc(doc, sessionEmail) {
         const label = doc.category_name || doc.title || doc.name || '';
         return { doctype: dt, name: slugify(label) };
     }
+    if (dt === 'LMS Quiz') {
+        const u = await requireUser(sessionEmail);
+        if (u.role !== 'admin' && u.role !== 'instructor') {
+            throw Object.assign(new Error('Permission denied: only instructors can create quizzes'), { status: 403, exc_type: 'PermissionError' });
+        }
+        const ins = await db.query(
+            `INSERT INTO quizzes (title, passing_percentage, total_marks, duration_minutes, show_answers)
+             VALUES ($1, $2, $3, $4, $5) RETURNING id, title`,
+            [doc.title || 'Untitled Quiz', doc.passing_percentage || 50, doc.total_marks || 0, doc.duration_minutes || 15, doc.show_answers !== false]
+        );
+        return { doctype: dt, name: ins[0].id, id: ins[0].id, title: ins[0].title };
+    }
     throw Object.assign(new Error(`Insert not permitted for ${dt}`), { status: 403 });
 }
 
@@ -762,6 +774,17 @@ async function getCount(params) {
     if (dt === 'LMS Batch') {
         const rows = await db.query('SELECT COUNT(*)::int AS n FROM batches WHERE published = true');
         return rows[0].n;
+    }
+    if (dt === 'LMS Quiz') {
+        const filters = typeof params.filters === 'string' ? JSON.parse(params.filters) : params.filters || {};
+        let w = 'TRUE';
+        const p = [];
+        if (filters.title && Array.isArray(filters.title) && filters.title[0] === 'like') {
+            p.push(filters.title[1]);
+            w += ` AND title ILIKE $${p.length}`;
+        }
+        const rows = await db.query(`SELECT COUNT(*)::int AS n FROM quizzes WHERE ${w}`, p);
+        return rows[0]?.n || 0;
     }
     if (dt === 'LMS Course Review') {
         const filters = typeof params.filters === 'string' ? JSON.parse(params.filters) : params.filters || {};
@@ -917,24 +940,34 @@ function formatProfileObj(u) {
 
 // ── frappe.client generic reads ─────────────────────────────────────────
 const LIST_TABLES = {
+    'LMS Quiz': "SELECT q.id::text AS name, q.title, q.passing_percentage, q.total_marks, q.show_answers, q.duration_minutes, q.created_at::text AS modified, q.created_at::text AS creation FROM quizzes q",
     'LMS Quiz Submission': "SELECT qs.id AS name, qs.score, qs.percentage, qs.passed, qs.created_at::text AS creation FROM quiz_submissions qs",
     'LMS Course Review': "SELECT r.id AS name, r.rating, r.review, r.created_at::text AS creation FROM reviews r",
     'LMS Certificate': "SELECT cert.id AS name, cert.certificate_id, cert.issued_on::text AS creation, c.title AS course_title, c.name AS course FROM certificates cert JOIN courses c ON c.id = cert.course_id",
     'Job Opportunity': "SELECT NULL::text AS name WHERE false",
 };
-async function clientGetList({ doctype, filters = {}, limit = 20 } = {}) {
+async function clientGetList({ doctype, filters = {}, limit = 50, order_by } = {}) {
     const base = LIST_TABLES[doctype];
     if (!base) return [];
+    const parsedFilters = typeof filters === 'string' ? JSON.parse(filters) : filters || {};
     const where = [];
     const params = [];
-    for (const [k, v] of Object.entries(filters || {})) {
-        if (k === 'member' || k === 'owner') { params.push(v); where.push(`member_id = (SELECT id FROM users WHERE lower(email)=lower($${params.length}))`); }
+    for (const [k, v] of Object.entries(parsedFilters)) {
+        if (k === 'member' || k === 'owner') { 
+            params.push(v); 
+            where.push(`member_id = (SELECT id FROM users WHERE lower(email)=lower($${params.length}))`); 
+        }
         else if (k === 'quiz') {
             params.push(v);
             where.push(`quiz_id = (SELECT id FROM quizzes WHERE id::text=$${params.length} OR title=$${params.length})`);
         }
+        else if (k === 'title' && Array.isArray(v) && v[0] === 'like') {
+            params.push(v[1]);
+            where.push(`title ILIKE $${params.length}`);
+        }
     }
-    const sql = `${base} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY creation DESC LIMIT ${Number(limit) || 20}`;
+    const order = order_by ? `ORDER BY ${order_by}` : 'ORDER BY creation DESC';
+    const sql = `${base} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ${order} LIMIT ${Number(limit) || 50}`;
     return db.query(sql, params);
 }
 
@@ -954,6 +987,33 @@ async function clientGetValue({ doctype, fieldname }) {
 
 async function clientGet({ doctype, name } = {}) {
     if (doctype === 'LMS Settings') return getLmsSettings();
+    if (doctype === 'LMS Quiz' && name) {
+        const rows = await db.query(
+            'SELECT id::text AS name, title, passing_percentage, total_marks, duration_minutes, show_answers, created_at::text AS modified FROM quizzes WHERE id::text = $1 OR title = $1 LIMIT 1',
+            [name]
+        );
+        if (!rows[0]) throw Object.assign(new Error(`Quiz ${name} not found`), { status: 404 });
+        const q = rows[0];
+        const questions = await db.query(
+            'SELECT id::text AS name, question, type, marks, idx FROM questions WHERE quiz_id::text = $1 ORDER BY idx ASC',
+            [q.name]
+        );
+        return {
+            doctype: 'LMS Quiz',
+            name: q.name,
+            title: q.title,
+            passing_percentage: Number(q.passing_percentage) || 50,
+            total_marks: Number(q.total_marks) || 0,
+            duration_minutes: q.duration_minutes || 0,
+            show_answers: q.show_answers ? 1 : 0,
+            questions: questions.map((qs) => ({
+                name: qs.name,
+                question: qs.question,
+                type: qs.type,
+                marks: Number(qs.marks) || 1,
+            })),
+        };
+    }
     if (doctype === 'LMS Course' && name) {
         const c = await courseByName(name);
         const staff = await staffList();
