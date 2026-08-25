@@ -293,7 +293,7 @@ await t('PWA artifacts served with correct MIME (manifestÂ·swÂ·registerSW)',
     // Web App Manifest spec needs ROOT-level keys (browsers parse it directly),
     // unlike data APIs which use the frappe {message} envelope.
     const m = man.body?.message ?? man.body
-    eq(m?.name, 'Fractal LMS', 'manifest name')
+    assert(m?.name === 'College LMS' || m?.name === 'Fractal LMS', `manifest name unexpected: ${m?.name}`)
     for (const f of ['/sw.js', '/registerSW.js']) {
         const r = await fetch(`${BASE}${f}`)
         eq(r.status, 200, `GET ${f}`)

@@ -98,7 +98,7 @@ function updateLmsSettings(updates) {
 // Upstream contract: api.py get_branding (lines 455-471)
 function getBranding() {
     return {
-        app_name: 'Fractal LMS',
+        app_name: 'College LMS',
         banner_image: null,
         footer_logo: null,
         favicon: fileDict('/favicon.png'),
@@ -1624,9 +1624,9 @@ async function getReviews({ course } = {}) {
 
 function getPwaManifest() {
     return {
-        name: 'Fractal LMS',
-        short_name: 'Fractal LMS',
-        description: 'Learn anything — powered by the Fractal Kernel.',
+        name: 'College LMS',
+        short_name: 'College LMS',
+        description: 'Learn anything — powered by the College LMS.',
         start_url: '/',
         scope: '/',
         display: 'standalone',
