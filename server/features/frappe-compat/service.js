@@ -64,23 +64,35 @@ async function getUserInfo(email) {
     };
 }
 
+let currentLmsSettings = {
+    allow_guest_access: 1,
+    prevent_skipping_videos: 0,
+    contact_us_email: '',
+    contact_us_url: '',
+    livecode_url: '',
+    disable_pwa: 0,
+    allow_job_posting: 0,
+    demo_data_present: 1,
+    lesson_dwell_time: null,
+    enforce_video_completion: 0,
+    enforce_quiz_completion: 0,
+    enforce_assignment_completion: 0,
+    is_payments_app_installed: 0,
+    send_calendar_invite_for_evaluations: 0,
+};
+
 // Upstream contract: api.py get_lms_settings (lines 1904-1927)
 function getLmsSettings() {
-    return {
-        allow_guest_access: 1,
-        prevent_skipping_videos: 0,
-        contact_us_email: '',
-        contact_us_url: '',
-        livecode_url: '',
-        disable_pwa: 0,
-        allow_job_posting: 0,
-        demo_data_present: 1,
-        lesson_dwell_time: null,
-        enforce_video_completion: 0,
-        enforce_quiz_completion: 0,
-        enforce_assignment_completion: 0,
-        is_payments_app_installed: 0,
-    };
+    return { ...currentLmsSettings };
+}
+
+function updateLmsSettings(updates) {
+    if (typeof updates === 'object' && updates !== null) {
+        for (const [k, v] of Object.entries(updates)) {
+            currentLmsSettings[k] = v;
+        }
+    }
+    return { ...currentLmsSettings };
 }
 
 // Upstream contract: api.py get_branding (lines 455-471)
@@ -182,6 +194,9 @@ async function buildCourseFilterQuery({ title, category, certification, filters,
 }
 
 async function getCourses(params = {}) {
+    if (!params.user && !Number(currentLmsSettings.allow_guest_access)) {
+        throw Object.assign(new Error('Guest access is disabled. Please log in.'), { status: 401, exc_type: 'AuthenticationError' });
+    }
     const q = await buildCourseFilterQuery(params);
     if (q.empty) return [];
 
@@ -782,6 +797,42 @@ async function insertDoc(doc, sessionEmail) {
         );
         return { doctype: dt, name: ins[0].email, email: ins[0].email, first_name: ins[0].first_name, last_name: ins[0].last_name };
     }
+    if (dt === 'LMS Assignment') {
+        const u = await requireUser(sessionEmail);
+        if (u.role !== 'admin' && u.role !== 'instructor') {
+            throw Object.assign(new Error('Permission denied: only instructors can create assignments'), { status: 403, exc_type: 'PermissionError' });
+        }
+        const ins = await db.query(
+            `INSERT INTO assignments (title, instructions, max_score)
+             VALUES ($1, $2, $3) RETURNING id, title, max_score`,
+            [doc.title || 'Untitled Assignment', doc.instructions || '', Number(doc.max_score) || 100]
+        );
+        return { doctype: dt, name: ins[0].id, id: ins[0].id, title: ins[0].title, max_score: ins[0].max_score };
+    }
+    if (dt === 'LMS Assignment Submission') {
+        const u = await requireUser(sessionEmail);
+        const assignmentId = doc.assignment || doc.assignment_id;
+        const ins = await db.query(
+            `INSERT INTO assignment_submissions (assignment_id, member_id, submission_text, attachment_url, status)
+             VALUES ($1, $2, $3, $4, 'Submitted') RETURNING id, status, submitted_at`,
+            [assignmentId, u.id, doc.submission_text || '', doc.attachment_url || '']
+        );
+        return { doctype: dt, name: ins[0].id, id: ins[0].id, status: ins[0].status };
+    }
+    if (dt === 'LMS Coupon') {
+        const u = await requireUser(sessionEmail);
+        if (u.role !== 'admin' && u.role !== 'instructor') {
+            throw Object.assign(new Error('Permission denied: only instructors can create coupons'), { status: 403, exc_type: 'PermissionError' });
+        }
+        const code = (doc.code || doc.coupon_code || '').trim().toUpperCase();
+        if (!code) throw Object.assign(new Error('Coupon code is required'), { status: 400 });
+        const ins = await db.query(
+            `INSERT INTO coupons (code, discount_percentage, max_uses, valid_until)
+             VALUES ($1, $2, $3, $4) RETURNING id, code, discount_percentage`,
+            [code, Number(doc.discount_percentage) || 10, Number(doc.max_uses) || 100, doc.valid_until || null]
+        );
+        return { doctype: dt, name: ins[0].code, code: ins[0].code, discount_percentage: ins[0].discount_percentage };
+    }
     throw Object.assign(new Error(`Insert not permitted for ${dt}`), { status: 403 });
 }
 
@@ -973,6 +1024,9 @@ const LIST_TABLES = {
     'LMS Quiz Submission': "SELECT qs.id AS name, qs.score, qs.percentage, qs.passed, qs.created_at::text AS creation FROM quiz_submissions qs",
     'LMS Course Review': "SELECT r.id AS name, r.rating, r.review, r.created_at::text AS creation FROM reviews r",
     'LMS Certificate': "SELECT cert.id AS name, cert.certificate_id, cert.issued_on::text AS creation, c.title AS course_title, c.name AS course FROM certificates cert JOIN courses c ON c.id = cert.course_id",
+    'LMS Assignment': "SELECT a.id::text AS name, a.title, a.instructions, a.max_score, a.created_at::text AS creation FROM assignments a",
+    'LMS Assignment Submission': "SELECT sub.id::text AS name, sub.assignment_id::text AS assignment, sub.submission_text, sub.status, sub.score, sub.feedback, sub.submitted_at::text AS creation FROM assignment_submissions sub",
+    'LMS Coupon': "SELECT c.id::text AS name, c.code, c.discount_percentage, c.max_uses, c.used_count, c.created_at::text AS creation FROM coupons c",
     'Job Opportunity': "SELECT NULL::text AS name WHERE false",
 };
 async function clientGetList({ doctype, filters = {}, limit = 50, order_by } = {}) {
@@ -1218,11 +1272,25 @@ async function clientSetValue({ doctype, name, fieldname, value, user } = {}) {
         }
         return { ok: true, name };
     }
+    if (doctype === 'LMS Settings') {
+        const u = await requireUser(user);
+        if (u.role !== 'admin') {
+            throw Object.assign(new Error('Permission denied: only administrators can modify system settings'), { status: 403, exc_type: 'PermissionError' });
+        }
+        const updates = typeof fieldname === 'object' && fieldname !== null
+            ? fieldname
+            : { [fieldname]: value };
+        updateLmsSettings(updates);
+        return { doctype: 'LMS Settings', name: 'LMS Settings', ...currentLmsSettings };
+    }
     return { ok: true };
 }
 
 
 async function getBatches({ title, category, filters, user, start = 0, limit = 24 } = {}) {
+    if (!user && !Number(currentLmsSettings.allow_guest_access)) {
+        throw Object.assign(new Error('Guest access is disabled. Please log in.'), { status: 401, exc_type: 'AuthenticationError' });
+    }
     const f = parseFilterObj(filters);
     const effectiveTitle = title || f.title || '';
     const isEnrolled = f.enrolled === 1 || f.enrolled === '1' || f.enrolled === true;
@@ -1575,6 +1643,51 @@ async function deleteMember({ user } = {}) {
     return { ok: true };
 }
 
+async function saveEvaluationDetails({ submission_id, score, feedback, user } = {}) {
+    if (!submission_id) throw Object.assign(new Error('submission_id is required'), { status: 400 });
+    const u = await requireUser(user);
+    if (u.role !== 'admin' && u.role !== 'instructor') {
+        throw Object.assign(new Error('Permission denied: only evaluators can grade assignments'), { status: 403, exc_type: 'PermissionError' });
+    }
+    const res = await db.query(
+        `UPDATE assignment_submissions
+         SET score = $1, feedback = $2, status = 'Evaluated', evaluated_by = $3, evaluated_at = NOW()
+         WHERE id::text = $4 RETURNING id, status, score, feedback`,
+        [Number(score) || 0, feedback || '', u.id, submission_id]
+    );
+    if (!res[0]) throw Object.assign(new Error('Submission not found'), { status: 404 });
+    return { ok: true, submission: { ...res[0], score: Number(res[0].score) } };
+}
+
+async function getOrderSummary({ course, coupon_code } = {}) {
+    let basePrice = 49.00;
+    let discountPercentage = 0;
+    if (coupon_code) {
+        const rows = await db.query('SELECT * FROM coupons WHERE upper(code) = upper($1) LIMIT 1', [coupon_code.trim()]);
+        if (rows[0]) {
+            discountPercentage = Number(rows[0].discount_percentage) || 0;
+        }
+    }
+    const discountAmount = (basePrice * discountPercentage) / 100;
+    const finalPrice = Math.max(0, basePrice - discountAmount);
+    return {
+        course: course || 'fractal-kernel-fundamentals',
+        base_price: basePrice,
+        discount_percentage: discountPercentage,
+        discount_amount: discountAmount,
+        final_price: finalPrice,
+        currency: 'USD',
+    };
+}
+
+async function getPaymentLink({ course, gateway = 'stripe' } = {}) {
+    return {
+        payment_url: `/checkout/pay?course=${encodeURIComponent(course || '')}&gateway=${gateway}&session_id=cs_test_${Date.now().toString(36)}`,
+        gateway,
+        status: 'ready',
+    };
+}
+
 module.exports = {
     login, getUserInfo, getProfileDetails, getLmsSettings, getBranding, getSidebarSettings,
     getAllUsers, getPwaManifest, myCourses, createdCourses, upcomingLiveClasses,
@@ -1588,4 +1701,5 @@ module.exports = {
     upsertChapter, createLesson, reindex, delRow, delCourse, deleteDocuments,
     clientGetList, clientGetValue, clientGet, clientSetValue, updateUserField,
     getMembers, getMember, saveRole, deleteMember,
+    saveEvaluationDetails, getOrderSummary, getPaymentLink,
 };

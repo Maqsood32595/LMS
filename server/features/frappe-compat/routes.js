@@ -122,6 +122,9 @@ router.all('/lms.lms.api.get_members', readQ((a) => service.getMembers(a)));
 router.all('/lms.lms.api.get_member', readQ((a) => service.getMember(a)));
 router.all('/lms.lms.api.save_role', readQ((a) => service.saveRole(a)));
 router.all('/lms.lms.api.delete_member', readQ((a) => service.deleteMember(a)));
+router.all('/lms.lms.api.save_evaluation_details', readQ((a) => service.saveEvaluationDetails(a)));
+router.all('/lms.lms.utils.get_order_summary', readQ((a) => service.getOrderSummary(a)));
+router.all('/lms.lms.payments.get_payment_link', readQ((a) => service.getPaymentLink(a)));
 
 // frappe.client generic reads/writes used across pages
 router.all('/frappe.client.get_list', readQ((a) => service.clientGetList(a)));
@@ -257,7 +260,6 @@ const STUBS = {
     'lms.lms.utils.get_chart_data': {},
     'lms.lms.utils.get_course_completion_data': {},
     'lms.lms.utils.get_lesson_creation_details': {},
-    'lms.lms.utils.get_order_summary': {},
     'lms.lms.utils.get_program_details': null,
     'lms.lms.utils.get_roles': [],
     'gameplan.api.get_unsplash_photos': [],
@@ -276,12 +278,10 @@ const STUBS = {
     'lms.lms.api.update_evaluator_slot': null,
     'lms.lms.api.ensure_evaluator_calendar': null,
     'lms.lms.api.set_evaluator_unavailability': null,
-    'lms.lms.api.save_evaluation_details': null,
     'lms.lms.api.save_certificate_details': null,
     'lms.lms.api.update_sidebar_item': null,
     'lms.lms.api.get_evaluator_details': null,
     'lms.lms.email_account.create_email_account': null,
-    'lms.lms.payments.get_payment_link': null,
     'lms.lms.doctype.lms_batch.lms_batch.create_live_class': null,
     'lms.lms.doctype.lms_batch.lms_batch.create_google_meet_live_class': null,
     'lms.lms.doctype.lms_certificate.lms_certificate.create_certificate': null,
