@@ -52,7 +52,7 @@ async function getUserInfo(email) {
         headline: u.headline || '',
         roles: [isAdmin ? 'System Manager' : isInstructor ? 'Course Creator' : 'LMS Student'],
         is_instructor: isInstructor,
-        is_moderator: isInstructor,
+        is_moderator: isAdmin,
         is_evaluator: false,
         is_student: !isInstructor,
         is_fc_site: false,
@@ -301,7 +301,7 @@ async function getRelatedCourses({ course, category } = {}) {
 async function getCourseOutline({ course, user } = {}) {
     const c = await courseByName(course);
     const chapters = await db.query(
-        'SELECT id AS name, title, idx FROM chapters WHERE course_id = $1 ORDER BY idx',
+        'SELECT id AS name, title, idx, is_scorm, launch_file FROM chapters WHERE course_id = $1 ORDER BY idx',
         [c.id]
     );
 
@@ -309,13 +309,14 @@ async function getCourseOutline({ course, user } = {}) {
     if (user) {
         const u = await db.query('SELECT id FROM users WHERE lower(email)=lower($1) LIMIT 1', [user]);
         if (u[0]) {
-            const comp = await db.query('SELECT lesson_id FROM course_progress WHERE member_id = $1', [u[0].id]);
+            const comp = await db.query('SELECT lesson_id FROM course_progress WHERE member_id = $1 AND completed_at IS NOT NULL', [u[0].id]);
             for (const r of comp) completedLessons.add(r.lesson_id);
         }
     }
 
     for (let i = 0; i < chapters.length; i++) {
         const ch = chapters[i];
+        const isScorm = Number(ch.is_scorm) === 1;
         const lessons = await db.query(
             `SELECT id AS name, title, content_type, include_in_preview, idx, duration, quiz_id
              FROM lessons WHERE chapter_id = $1 ORDER BY idx`,
@@ -325,15 +326,20 @@ async function getCourseOutline({ course, user } = {}) {
             const isComp = completedLessons.has(l.name);
             return {
                 ...l,
+                chapter_id: ch.name,
+                is_scorm: isScorm ? 1 : 0,
                 number: `${i + 1}-${lIdx + 1}`,
                 is_complete: isComp,
                 completed: isComp,
             };
         });
+        // expose is_scorm on chapter itself for CourseOutline
+        ch.is_scorm = isScorm ? 1 : 0;
     }
 
     return chapters;
 }
+
 
 async function getLesson({ course, chapter, lesson, user } = {}) {
     const c = await courseByName(course);
@@ -343,12 +349,12 @@ async function getLesson({ course, chapter, lesson, user } = {}) {
         const chIdx = Number(chapter) - 1;
         const lIdx = Number(lesson) - 1;
         const chapters = await db.query(
-            'SELECT id, title FROM chapters WHERE course_id = $1 ORDER BY idx LIMIT 1 OFFSET $2',
+            'SELECT id, title, is_scorm, launch_file FROM chapters WHERE course_id = $1 ORDER BY idx LIMIT 1 OFFSET $2',
             [c.id, Math.max(0, chIdx)]
         );
         if (chapters[0]) {
             const lessons = await db.query(
-                `SELECT l.*, ch.title AS chapter_title
+                `SELECT l.*, ch.title AS chapter_title, ch.is_scorm, ch.launch_file
                  FROM lessons l
                  JOIN chapters ch ON ch.id = l.chapter_id
                  WHERE l.chapter_id = $1 ORDER BY l.idx LIMIT 1 OFFSET $2`,
@@ -359,7 +365,7 @@ async function getLesson({ course, chapter, lesson, user } = {}) {
     } else {
         const lessonIdentifier = lesson || chapter;
         const rows = await db.query(
-            `SELECT l.*, ch.title AS chapter_title
+            `SELECT l.*, ch.title AS chapter_title, ch.is_scorm, ch.launch_file
              FROM lessons l
              JOIN chapters ch ON ch.id = l.chapter_id
              WHERE (l.id::text = $1 OR l.title = $1)
@@ -397,6 +403,8 @@ async function getLesson({ course, chapter, lesson, user } = {}) {
     return {
         id: row.id,
         chapter_id: row.chapter_id,
+        chapter_name: row.chapter_id,
+        is_scorm_package: Number(row.is_scorm) ? 1 : 0,
         title: row.title,
         body: row.body,
         content_type: row.content_type,
@@ -417,7 +425,7 @@ async function getLesson({ course, chapter, lesson, user } = {}) {
     };
 }
 
-async function saveProgress({ lesson, course, user } = {}) {
+async function saveProgress({ lesson, course, scorm_details, user } = {}) {
     const u = await requireUser(user);
     let c = null;
     if (course) {
@@ -438,17 +446,40 @@ async function saveProgress({ lesson, course, user } = {}) {
     const lessonId = lRows[0].id;
     const courseId = lRows[0].course_id;
 
-    await db.query(
-        `INSERT INTO course_progress (member_id, course_id, lesson_id, completed_at)
-         VALUES ($1,$2,$3,NOW()) ON CONFLICT (member_id, lesson_id) DO NOTHING`,
-        [u.id, courseId, lessonId]
-    );
+    let scormContent = null;
+    let isComplete = true;
+    if (scorm_details) {
+        if (typeof scorm_details === 'object') {
+            scormContent = scorm_details.scorm_content || null;
+            if (scorm_details.is_complete !== undefined) {
+                isComplete = Boolean(scorm_details.is_complete);
+            }
+        }
+    }
+
+    if (isComplete) {
+        await db.query(
+            `INSERT INTO course_progress (member_id, course_id, lesson_id, completed_at, scorm_content)
+             VALUES ($1,$2,$3,NOW(),$4)
+             ON CONFLICT (member_id, lesson_id)
+             DO UPDATE SET completed_at = NOW(), scorm_content = COALESCE($4, course_progress.scorm_content)`,
+            [u.id, courseId, lessonId, scormContent]
+        );
+    } else if (scormContent) {
+        await db.query(
+            `INSERT INTO course_progress (member_id, course_id, lesson_id, scorm_content)
+             VALUES ($1,$2,$3,$4)
+             ON CONFLICT (member_id, lesson_id)
+             DO UPDATE SET scorm_content = $4`,
+            [u.id, courseId, lessonId, scormContent]
+        );
+    }
 
     const total = await db.query(
         'SELECT COUNT(*)::int AS n FROM lessons l JOIN chapters ch ON ch.id=l.chapter_id WHERE ch.course_id=$1', [courseId]
     );
     const done = await db.query(
-        'SELECT COUNT(*)::int AS n FROM course_progress WHERE course_id=$1 AND member_id=$2', [courseId, u.id]
+        'SELECT COUNT(*)::int AS n FROM course_progress WHERE course_id=$1 AND member_id=$2 AND completed_at IS NOT NULL', [courseId, u.id]
     );
     const totN = total[0]?.n || 1;
     const doneN = done[0]?.n || 0;
@@ -833,6 +864,9 @@ async function insertDoc(doc, sessionEmail) {
         );
         return { doctype: dt, name: ins[0].code, code: ins[0].code, discount_percentage: ins[0].discount_percentage };
     }
+    if (dt === 'LMS Lesson Note' || dt === 'Course Note') {
+        return { doctype: dt, name: `note-${Date.now()}`, ...doc };
+    }
     throw Object.assign(new Error(`Insert not permitted for ${dt}`), { status: 403 });
 }
 
@@ -1020,6 +1054,8 @@ function formatProfileObj(u) {
 
 // ── frappe.client generic reads ─────────────────────────────────────────
 const LIST_TABLES = {
+    'LMS Enrollment': "SELECT e.id::text AS name, u.email AS member, c.name AS course, e.progress, e.status, e.enrolled_on::text AS creation FROM enrollments e JOIN users u ON u.id = e.member_id JOIN courses c ON c.id = e.course_id",
+    'LMS Lesson Note': "SELECT NULL::text AS name, '' AS color, '' AS highlighted_text, '' AS note, NOW()::text AS creation WHERE false",
     'LMS Quiz': "SELECT q.id::text AS name, q.title, q.passing_percentage, q.total_marks, q.show_answers, q.duration_minutes, q.created_at::text AS modified, q.created_at::text AS creation FROM quizzes q",
     'LMS Quiz Submission': "SELECT qs.id AS name, qs.score, qs.percentage, qs.passed, qs.created_at::text AS creation FROM quiz_submissions qs",
     'LMS Course Review': "SELECT r.id AS name, r.rating, r.review, r.created_at::text AS creation FROM reviews r",
@@ -1038,7 +1074,21 @@ async function clientGetList({ doctype, filters = {}, limit = 50, order_by } = {
     for (const [k, v] of Object.entries(parsedFilters)) {
         if (k === 'member' || k === 'owner') { 
             params.push(v); 
-            where.push(`member_id = (SELECT id FROM users WHERE lower(email)=lower($${params.length}))`); 
+            if (doctype === 'LMS Enrollment') {
+                where.push(`(u.email = $${params.length} OR e.member_id = (SELECT id FROM users WHERE lower(email)=lower($${params.length})))`); 
+            } else {
+                where.push(`member_id = (SELECT id FROM users WHERE lower(email)=lower($${params.length}))`);
+            }
+        }
+        else if (k === 'course') {
+            params.push(v);
+            if (doctype === 'LMS Enrollment') {
+                where.push(`(c.name = $${params.length} OR c.id::text = $${params.length})`);
+            } else if (doctype === 'LMS Certificate') {
+                where.push(`(c.name = $${params.length} OR c.id::text = $${params.length})`);
+            } else {
+                where.push(`course_id = (SELECT id FROM courses WHERE name = $${params.length} OR id::text = $${params.length})`);
+            }
         }
         else if (k === 'quiz') {
             params.push(v);
@@ -1049,7 +1099,7 @@ async function clientGetList({ doctype, filters = {}, limit = 50, order_by } = {
             where.push(`title ILIKE $${params.length}`);
         }
     }
-    const order = order_by ? `ORDER BY ${order_by}` : 'ORDER BY creation DESC';
+    const order = order_by ? `ORDER BY ${order_by}` : (base.includes('creation') ? 'ORDER BY creation DESC' : '');
     const sql = `${base} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ${order} LIMIT ${Number(limit) || 50}`;
     return db.query(sql, params);
 }
@@ -1059,7 +1109,27 @@ const VALUE_TABLES = {
     'LMS Settings': () => ({ allow_guest_access: 1 }),
 };
 
-async function clientGetValue({ doctype, fieldname }) {
+async function clientGetValue({ doctype, fieldname, filters } = {}) {
+    if (doctype === 'LMS Course Progress' && filters) {
+        const filt = typeof filters === 'string' ? JSON.parse(filters) : filters;
+        const member = filt.member;
+        const lesson = filt.lesson;
+        const rows = await db.query(
+            `SELECT cp.completed_at, cp.scorm_content
+             FROM course_progress cp
+             JOIN users u ON u.id = cp.member_id
+             JOIN lessons l ON l.id = cp.lesson_id
+             WHERE (lower(u.email) = lower($1) OR u.id::text = $1)
+               AND (l.id::text = $2 OR l.title = $2)
+             LIMIT 1`,
+            [member, lesson]
+        );
+        const r = rows[0] || {};
+        return {
+            status: r.completed_at ? 'Complete' : 'In Progress',
+            scorm_content: r.scorm_content || '',
+        };
+    }
     const fn = VALUE_TABLES[doctype];
     const row = fn ? await fn() : {};
     const fields = Array.isArray(fieldname) ? fieldname : String(fieldname || '').split(',');
@@ -1070,6 +1140,33 @@ async function clientGetValue({ doctype, fieldname }) {
 
 async function clientGet({ doctype, name } = {}) {
     if (doctype === 'LMS Settings') return getLmsSettings();
+    if ((doctype === 'Course Chapter' || doctype === 'Chapter' || doctype === 'LMS Chapter') && name) {
+        const chRows = await db.query(
+            `SELECT ch.id, ch.id AS name, ch.title, ch.idx, ch.launch_file, ch.is_scorm,
+                    c.id AS course_id, c.name AS course, c.title AS course_title
+             FROM chapters ch
+             JOIN courses c ON c.id = ch.course_id
+             WHERE ch.id::text = $1 OR ch.title = $1 LIMIT 1`,
+            [name]
+        );
+        if (!chRows[0]) throw Object.assign(new Error(`Chapter ${name} not found`), { status: 404 });
+        const ch = chRows[0];
+        const lessons = await db.query(
+            `SELECT l.id AS lesson, l.id::text AS name, l.title, l.idx, l.body
+             FROM lessons l WHERE l.chapter_id = $1 ORDER BY l.idx ASC`,
+            [ch.id]
+        );
+        return {
+            doctype: 'Course Chapter',
+            name: ch.name,
+            title: ch.title,
+            course: ch.course,
+            course_title: ch.course_title,
+            launch_file: ch.launch_file || '',
+            is_scorm: Number(ch.is_scorm) ? 1 : 0,
+            lessons: lessons.length ? lessons : [{ lesson: ch.id, title: ch.title }],
+        };
+    }
     if (doctype === 'LMS Quiz' && name) {
         const rows = await db.query(
             'SELECT id::text AS name, title, passing_percentage, total_marks, duration_minutes, show_answers, created_at::text AS modified FROM quizzes WHERE id::text = $1 OR title = $1 LIMIT 1',

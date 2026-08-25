@@ -85,6 +85,8 @@ export interface OutlineLesson {
 	icon?: string
 	is_complete?: boolean
 	locked?: 0 | 1
+	is_scorm?: 0 | 1
+	chapter_id?: string
 }
 
 export interface OutlineChapter {

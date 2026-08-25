@@ -533,6 +533,9 @@ const lesson = createResource({
 		}
 	},
 	auto: true,
+	onSuccess(data) {
+		setupLesson(data)
+	},
 })
 
 const setupLesson = (data) => {

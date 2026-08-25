@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCORM 1.2 — Golf Fundamentals & Etiquette</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+        body { background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+        .card { background: #1e293b; border-radius: 16px; border: 1px solid #334155; max-width: 750px; width: 100%; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); overflow: hidden; }
+        .header { background: linear-gradient(135deg, #10b981, #047857); padding: 24px 32px; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 1.4rem; font-weight: 700; }
+        .scorm-badge { background: rgba(0,0,0,0.25); font-size: 0.75rem; padding: 6px 12px; border-radius: 9999px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+        .content { padding: 32px; min-height: 380px; display: flex; flex-direction: column; justify-content: space-between; }
+        .slide { display: none; }
+        .slide.active { display: block; animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        h2 { font-size: 1.3rem; margin-bottom: 12px; color: #38bdf8; }
+        p { line-height: 1.6; color: #cbd5e1; margin-bottom: 16px; font-size: 1.05rem; }
+        .quiz-opt { display: block; background: #334155; padding: 14px 18px; border-radius: 8px; margin-bottom: 10px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s; }
+        .quiz-opt:hover { background: #475569; }
+        .quiz-opt.selected { border-color: #38bdf8; background: #1e3a8a; }
+        .footer { padding: 20px 32px; background: #0f172a; border-top: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }
+        button { background: #10b981; color: white; border: none; padding: 10px 22px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 0.95rem; transition: background 0.2s; }
+        button:hover { background: #059669; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .progress-dots { display: flex; gap: 8px; }
+        .dot { width: 10px; height: 10px; border-radius: 50%; background: #475569; }
+        .dot.active { background: #10b981; }
+        .result-box { background: #064e3b; border: 1px solid #059669; padding: 20px; border-radius: 10px; text-align: center; margin-top: 10px; }
+        .result-box h3 { color: #a7f3d0; margin-bottom: 6px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="header">
+            <div>
+                <div style="font-size: 0.8rem; opacity: 0.9;">SCORM 1.2 Interactive Course</div>
+                <h1>Golf Fundamentals & Rules</h1>
+            </div>
+            <div class="scorm-badge" id="scormStatus">Connecting API...</div>
+        </div>
+        <div class="content">
+            <!-- Slide 1 -->
+            <div class="slide active" id="slide1">
+                <h2>Module 1: The Anatomy of a Golf Hole</h2>
+                <p>A golf course typically consists of 18 holes. Each hole features a <strong>Teeing Area</strong>, a <strong>Fairway</strong>, <strong>Hazards</strong> (such as sand bunkers or water), and the <strong>Putting Green</strong> containing the hole and flagstick.</p>
+                <p>The objective of the game is simple: play a ball from the teeing ground into the hole by a stroke or successive strokes in accordance with the Rules.</p>
+            </div>
+
+            <!-- Slide 2 -->
+            <div class="slide" id="slide2">
+                <h2>Module 2: Par and Scoring Terms</h2>
+                <p><strong>Par:</strong> The predetermined number of strokes that a proficient golfer is expected to take for a hole.</p>
+                <p>• <strong>Birdie:</strong> One stroke under par (-1)<br>
+                   • <strong>Eagle:</strong> Two strokes under par (-2)<br>
+                   • <strong>Bogey:</strong> One stroke over par (+1)<br>
+                   • <strong>Double Bogey:</strong> Two strokes over par (+2)</p>
+            </div>
+
+            <!-- Slide 3 -->
+            <div class="slide" id="slide3">
+                <h2>Knowledge Check: Final Interactive Assessment</h2>
+                <p>Select the correct answer to complete this SCORM module and record your score:</p>
+                <div style="margin-top: 15px;">
+                    <div class="quiz-opt" onclick="pick(1, this)">A) Par means the player took 2 extra strokes over the limit.</div>
+                    <div class="quiz-opt" onclick="pick(2, this)">B) A Birdie is exactly one stroke under par (-1).</div>
+                    <div class="quiz-opt" onclick="pick(3, this)">C) A Bogey means getting the ball into the hole in one shot.</div>
+                </div>
+            </div>
+
+            <!-- Slide 4: Completion -->
+            <div class="slide" id="slide4">
+                <h2>Course Complete! 🎉</h2>
+                <p>Your interactive SCORM assessment has been evaluated by the engine.</p>
+                <div class="result-box">
+                    <h3>100% Score Recorded</h3>
+                    <p style="margin:0; color:#cbd5e1;">Status reported to Fractal LMS: <strong style="color: #34d399;">cmi.core.lesson_status = "passed"</strong></p>
+                </div>
+                <div style="margin-top: 24px; text-align: center;">
+                    <button onclick="returnToCourse()" style="background: linear-gradient(135deg, #10b981, #059669); font-size: 1.05rem; padding: 12px 28px; box-shadow: 0 4px 14px 0 rgba(16, 185, 129, 0.39);">
+                        Return to Course ➔
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <div class="progress-dots">
+                <div class="dot active" id="dot1"></div>
+                <div class="dot" id="dot2"></div>
+                <div class="dot" id="dot3"></div>
+                <div class="dot" id="dot4"></div>
+            </div>
+            <div>
+                <button id="prevBtn" onclick="moveSlide(-1)" disabled style="margin-right: 8px; background: #475569;">Back</button>
+                <button id="nextBtn" onclick="moveSlide(1)">Next Step</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentSlide = 1;
+        let selectedOption = null;
+        let scormAPI = null;
+
+        function findSCORMAPI(win) {
+            let findAttempts = 0;
+            while ((win.API == null) && (win.parent != null) && (win.parent != win)) {
+                findAttempts++;
+                if (findAttempts > 7) return null;
+                win = win.parent;
+            }
+            return win.API;
+        }
+
+        window.onload = function() {
+            scormAPI = findSCORMAPI(window) || window.API;
+            const badge = document.getElementById('scormStatus');
+            if (scormAPI) {
+                try {
+                    scormAPI.LMSInitialize("");
+                    scormAPI.LMSSetValue("cmi.core.lesson_status", "incomplete");
+                    scormAPI.LMSCommit("");
+                    badge.innerText = "SCORM 1.2 Connected";
+                    badge.style.background = "rgba(16, 185, 129, 0.3)";
+                } catch(e) {
+                    badge.innerText = "SCORM Ready";
+                }
+            } else {
+                badge.innerText = "Standalone Preview";
+            }
+        };
+
+        function pick(opt, el) {
+            selectedOption = opt;
+            document.querySelectorAll('.quiz-opt').forEach(x => x.classList.remove('selected'));
+            el.classList.add('selected');
+        }
+
+        function moveSlide(delta) {
+            if (currentSlide === 3 && delta > 0) {
+                if (selectedOption !== 2) {
+                    alert("Please select the correct answer (Hint: Birdie is 1 stroke under par) to pass!");
+                    return;
+                }
+                // Record SCORM Passed status to LMS
+                if (scormAPI) {
+                    try {
+                        scormAPI.LMSSetValue("cmi.core.lesson_status", "passed");
+                        scormAPI.LMSSetValue("cmi.core.score.raw", "100");
+                        scormAPI.LMSCommit("");
+                    } catch(e) {}
+                }
+            }
+
+            document.getElementById(`slide${currentSlide}`).classList.remove('active');
+            document.getElementById(`dot${currentSlide}`).classList.remove('active');
+
+            currentSlide += delta;
+            if (currentSlide > 4) currentSlide = 4;
+            if (currentSlide < 1) currentSlide = 1;
+
+            document.getElementById(`slide${currentSlide}`).classList.add('active');
+            document.getElementById(`dot${currentSlide}`).classList.add('active');
+
+            document.getElementById('prevBtn').disabled = (currentSlide === 1);
+            if (currentSlide === 4) {
+                document.getElementById('nextBtn').style.display = 'none';
+            } else {
+                document.getElementById('nextBtn').style.display = 'inline-block';
+            }
+        }
+
+        function returnToCourse() {
+            if (scormAPI) {
+                try { scormAPI.LMSFinish(""); } catch(e) {}
+            }
+            if (window.parent && window.parent !== window) {
+                window.parent.location.href = '/lms/courses/scorm-golf-fundamentals';
+            } else {
+                window.location.href = '/lms/courses/scorm-golf-fundamentals';
+            }
+        }
+    </script>
+</body>
+</html>

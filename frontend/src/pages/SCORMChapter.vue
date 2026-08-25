@@ -1,5 +1,16 @@
 <template>
-	<PageHeader :breadcrumbs="breadcrumbs" />
+	<PageHeader :breadcrumbs="breadcrumbs">
+		<template #actions>
+			<router-link
+				:to="{
+					name: 'CourseDetail',
+					params: { courseName: courseName },
+				}"
+			>
+				<HeaderButton :label="__('Back to Course')" icon="lucide-arrow-left" />
+			</router-link>
+		</template>
+	</PageHeader>
 	<div v-if="isLocked" class="sm:border-e">
 		<LockedLessonNotice
 			:redirect="!!currentLessonNumber"
@@ -50,6 +61,7 @@ import {
 import { computed, inject, onBeforeMount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PageHeader from '@/components/Layouts/PageHeader.vue'
+import HeaderButton from '@/components/HeaderButton.vue'
 import LockedLessonNotice from '@/components/LockedLessonNotice.vue'
 import { useSidebar } from '@/stores/sidebar'
 import { sessionStore } from '../stores/session'

@@ -308,11 +308,19 @@ function lessonRoute(lesson: OutlineLesson): RouteLocationRaw {
 			query: { editLesson: lesson.number },
 		}
 	}
+	// SCORM lessons are served by SCORMChapter.vue using the chapter UUID
+	if (lesson.is_scorm && lesson.chapter_id) {
+		return {
+			name: 'SCORMChapter',
+			params: { courseName: props.courseName, chapterName: lesson.chapter_id },
+		}
+	}
 	return {
 		name: 'Lesson',
 		params: { courseName: props.courseName, chapterNumber, lessonNumber },
 	}
 }
+
 
 function onLessonClick(lesson: OutlineLesson) {
 	if (lesson.locked) return

@@ -238,6 +238,7 @@ const STUBS = {
     'lms.lms.api.get_meta_info': [],
     'lms.lms.api.update_meta_info': { ok: true },
     'lms.lms.api.get_announcements': [],
+    'lms.lms.api.track_video_watch_duration': { ok: true },
     'lms.lms.api.get_badges': [],
     'lms.lms.api.get_certification_categories': [],
     'lms.lms.api.get_chart_details': {},
