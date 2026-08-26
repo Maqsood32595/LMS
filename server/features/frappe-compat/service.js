@@ -1247,15 +1247,18 @@ async function clientGet({ doctype, name } = {}) {
             published: Number(c.published) ? 1 : 0,
             featured: Number(c.featured) ? 1 : 0,
             enable_certification: Number(c.enable_certification) ? 1 : 0,
+            upcoming: Boolean(c.upcoming),
+            disable_self_learning: Boolean(c.disable_self_learning),
+            enforce_lesson_completion: Boolean(c.enforce_lesson_completion),
+            paid_course: Boolean(c.paid_course),
+            paid_certificate: Boolean(c.paid_certificate),
             video_link: c.video_link || '',
             instructors: staff.map((s) => ({
                 instructor: s.email,
                 instructor_name: s.full_name,
                 name: s.email,
             })),
-            paid_course: 0,
             card_gradient: 'blue',
-            upcoming: 0,
         };
     }
     return {};
@@ -1391,14 +1394,39 @@ async function clientSetValue({ doctype, name, fieldname, value, user } = {}) {
             published: 'published',
             featured: 'featured',
             enable_certification: 'enable_certification',
+            upcoming: 'upcoming',
+            disable_self_learning: 'disable_self_learning',
+            enforce_lesson_completion: 'enforce_lesson_completion',
+            paid_course: 'paid_course',
+            paid_certificate: 'paid_certificate',
         };
-        const col = colMap[fieldname];
-        if (col) {
-            let val = value;
-            if (col === 'published' || col === 'featured' || col === 'enable_certification') {
-                val = Boolean(Number(value) || value === true || value === '1');
+        const BOOL_COLS = new Set([
+            'published', 'featured', 'enable_certification',
+            'upcoming', 'disable_self_learning', 'enforce_lesson_completion',
+            'paid_course', 'paid_certificate',
+        ]);
+
+        // Support single-field updates (fieldname=string) and whole-doc batch updates (fieldname=object)
+        const updates = typeof fieldname === 'object' && fieldname !== null
+            ? fieldname
+            : { [fieldname]: value };
+
+        const sets = [];
+        const params = [];
+        for (const [k, v] of Object.entries(updates)) {
+            const col = colMap[k];
+            if (!col) continue;
+            let val = v;
+            if (BOOL_COLS.has(col)) {
+                val = Boolean(Number(v) || v === true || v === '1');
             }
-            await db.query(`UPDATE courses SET ${col} = $1 WHERE name = $2 OR id::text = $2`, [val, name]);
+            params.push(val);
+            sets.push(`${col} = $${params.length}`);
+        }
+
+        if (sets.length > 0) {
+            params.push(name);
+            await db.query(`UPDATE courses SET ${sets.join(', ')} WHERE name = $${params.length} OR id::text = $${params.length}`, params);
         }
         return { ok: true, name };
     }
