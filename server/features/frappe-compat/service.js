@@ -662,6 +662,18 @@ async function insertDoc(doc, sessionEmail) {
             'INSERT INTO enrollments (member_id, course_id) VALUES ($1,$2) ON CONFLICT (member_id, course_id) DO NOTHING',
             [u.id, course[0].id]
         );
+        const studentName = `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email;
+        const staff = await staffList();
+        for (const s of staff) {
+            await createNotification({
+                for_user: s.email,
+                from_user: u.email,
+                subject: `<b>${studentName}</b> enrolled in <b>${doc.course}</b>`,
+                link: `/lms/courses/${doc.course}`,
+                document_type: 'LMS Course',
+                document_name: doc.course,
+            });
+        }
         return { doctype: dt, name: doc.course, course: doc.course, member: u.email };
     }
     if (dt === 'LMS Course') {
@@ -883,7 +895,18 @@ async function insertDoc(doc, sessionEmail) {
 // frappe.client.get_count — minimal counters the UI polls
 async function getCount(params) {
     const dt = params.doctype || '';
-    if (dt === 'Notification Log') return 0;
+    if (dt === 'Notification Log') {
+        const filters = typeof params.filters === 'string' ? JSON.parse(params.filters) : params.filters || {};
+        const forUser = filters.for_user || params.sessionUser;
+        if (!forUser) return 0;
+        const isRead = filters.read === 0 || filters.read === '0' || filters.read === false ? false : null;
+        if (isRead !== null) {
+            const rows = await db.query('SELECT COUNT(*)::int AS n FROM notifications WHERE lower(for_user) = lower($1) AND read = $2', [forUser, isRead]);
+            return rows[0]?.n || 0;
+        }
+        const rows = await db.query('SELECT COUNT(*)::int AS n FROM notifications WHERE lower(for_user) = lower($1)', [forUser]);
+        return rows[0]?.n || 0;
+    }
     if (dt === 'LMS Course') {
         const rows = await db.query('SELECT COUNT(*)::int AS n FROM courses');
         return rows[0].n;
@@ -1852,6 +1875,61 @@ async function getPaymentLink({ course, gateway = 'stripe' } = {}) {
     };
 }
 
+async function createNotification({ for_user, from_user, subject, link, document_type, document_name }) {
+    if (!for_user || !subject) return;
+    try {
+        await db.query(
+            `INSERT INTO notifications (for_user, from_user, subject, link, document_type, document_name)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [for_user, from_user || null, subject, link || null, document_type || null, document_name || null]
+        );
+    } catch (e) {
+        console.error('Failed to create notification:', e.message);
+    }
+}
+
+async function getNotifications(sessionEmail) {
+    if (!sessionEmail) return [];
+    const rows = await db.query(
+        `SELECT n.id::text AS name, n.subject, n.link, n.document_type, n.document_name,
+                CASE WHEN n.read THEN 1 ELSE 0 END AS read,
+                n.created_at::text AS creation,
+                u.first_name, u.last_name, u.email AS from_email, u.avatar_url AS from_image
+         FROM notifications n
+         LEFT JOIN users u ON lower(u.email) = lower(n.from_user)
+         WHERE lower(n.for_user) = lower($1)
+         ORDER BY n.created_at DESC
+         LIMIT 50`,
+        [sessionEmail]
+    );
+    return rows.map((r) => ({
+        name: r.name,
+        subject: r.subject,
+        link: r.link,
+        document_type: r.document_type,
+        document_name: r.document_name,
+        read: r.read,
+        creation: r.creation,
+        from_user_details: {
+            full_name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.from_email || 'College LMS',
+            user_image: r.from_image || '',
+            email: r.from_email || '',
+        },
+    }));
+}
+
+async function markNotificationAsRead(id) {
+    if (!id) return { ok: false };
+    await db.query('UPDATE notifications SET read = true WHERE id::text = $1', [id]);
+    return { ok: true };
+}
+
+async function markAllNotificationsAsRead(sessionEmail) {
+    if (!sessionEmail) return { ok: false };
+    await db.query('UPDATE notifications SET read = true WHERE lower(for_user) = lower($1)', [sessionEmail]);
+    return { ok: true };
+}
+
 module.exports = {
     login, getUserInfo, getProfileDetails, getLmsSettings, getBranding, getSidebarSettings,
     getAllUsers, getPwaManifest, myCourses, createdCourses, upcomingLiveClasses,
@@ -1866,4 +1944,5 @@ module.exports = {
     clientGetList, clientGetValue, clientGet, clientSetValue, updateUserField,
     getMembers, getMember, saveRole, deleteMember,
     saveEvaluationDetails, getOrderSummary, getPaymentLink,
+    getNotifications, markNotificationAsRead, markAllNotificationsAsRead, createNotification,
 };
