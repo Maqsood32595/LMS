@@ -1064,7 +1064,7 @@ function formatProfileObj(u) {
 
 // ── frappe.client generic reads ─────────────────────────────────────────
 const LIST_TABLES = {
-    'LMS Enrollment': "SELECT e.id::text AS name, u.email AS member, c.name AS course, e.progress, e.status, e.enrolled_on::text AS creation FROM enrollments e JOIN users u ON u.id = e.member_id JOIN courses c ON c.id = e.course_id",
+    'LMS Enrollment': "SELECT e.id::text AS name, u.email AS member, COALESCE(NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), u.email) AS member_name, COALESCE(u.avatar_url, '') AS member_image, SPLIT_PART(u.email, '@', 1) AS member_username, c.name AS course, e.progress, e.status, e.enrolled_on::text AS creation FROM enrollments e JOIN users u ON u.id = e.member_id JOIN courses c ON c.id = e.course_id",
     'LMS Lesson Note': "SELECT NULL::text AS name, '' AS color, '' AS highlighted_text, '' AS note, NOW()::text AS creation WHERE false",
     'LMS Quiz': "SELECT q.id::text AS name, q.title, q.passing_percentage, q.total_marks, q.show_answers, q.duration_minutes, q.created_at::text AS modified, q.created_at::text AS creation FROM quizzes q",
     'LMS Quiz Submission': "SELECT qs.id AS name, qs.score, qs.percentage, qs.passed, qs.created_at::text AS creation FROM quiz_submissions qs",
