@@ -195,13 +195,14 @@
 							class="lucide-circle-help size-4 text-ink-gray-7 cursor-pointer"
 							@click="
 								() => {
+									showHelpCenter.value = true
 									showHelpModal = minimize ? true : !showHelpModal
 									minimize = !showHelpModal
 								}
 							"
 						/>
 					</Tooltip>
-					<Tooltip :text="__('Powered by Frappe Learning')">
+					<Tooltip :text="__('Powered by College LMS')">
 						<span
 							class="lucide-zap size-4 text-ink-gray-7 cursor-pointer"
 							@click="redirectToWebsite()"
@@ -232,7 +233,7 @@
 			v-model="showHelpModal"
 			v-model:articles="articles"
 			appName="learning"
-			title="Frappe Learning"
+			title="College LMS"
 			:logo="LMSLogo"
 			:afterSkip="(step) => capture('onboarding_step_skipped_' + step)"
 			:afterSkipAll="() => capture('onboarding_steps_skipped')"
@@ -289,6 +290,7 @@ import {
 	GettingStartedBanner,
 	useOnboarding,
 	showHelpModal,
+	showHelpCenter,
 	minimize,
 	IntermediateStepModal,
 	useTelemetry,
@@ -642,6 +644,7 @@ const setUpOnboarding = () => {
 		onboardingDetails = useOnboarding('learning')
 		onboardingDetails.setUp(steps)
 		isOnboardingStepsCompleted = onboardingDetails.isOnboardingStepsCompleted
+		showHelpCenter.value = true
 		showOnboarding.value = true
 	}
 }
