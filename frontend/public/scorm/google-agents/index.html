@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Final Assessment — Google AI Agents & Swarm Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+    min-height: 100vh;
+    color: #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    width: min(760px, 100%);
+    background: rgba(30, 41, 59, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(139, 92, 246, 0.25);
+    border-radius: 20px;
+    padding: 40px;
+    box-shadow: 0 25px 60px rgba(0,0,0,0.5);
+  }
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  .icon { font-size: 2.5rem; }
+  .header h1 { font-size: 1.4rem; font-weight: 700; color: #a78bfa; }
+  .header p { font-size: 0.85rem; color: #94a3b8; margin-top: 3px; }
+
+  .progress-bar-wrap {
+    background: rgba(255,255,255,0.07);
+    border-radius: 999px;
+    height: 6px;
+    margin-bottom: 32px;
+    overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #7c3aed, #a78bfa);
+    border-radius: 999px;
+    transition: width 0.4s ease;
+    width: 0%;
+  }
+
+  .slide { display: none; animation: fadeIn 0.35s ease; }
+  .slide.active { display: block; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+
+  .slide h2 { font-size: 1.2rem; font-weight: 700; color: #c4b5fd; margin-bottom: 8px; }
+  .slide .question { font-size: 1rem; color: #e2e8f0; margin-bottom: 22px; line-height: 1.6; }
+
+  .options { display: flex; flex-direction: column; gap: 10px; }
+  .option {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 18px;
+    background: rgba(255,255,255,0.04);
+    border: 1.5px solid rgba(139,92,246,0.2);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.95rem;
+    color: #cbd5e1;
+    user-select: none;
+  }
+  .option:hover { background: rgba(139,92,246,0.12); border-color: rgba(139,92,246,0.5); color: #e2e8f0; }
+  .option.selected { background: rgba(139,92,246,0.18); border-color: #7c3aed; color: #e2e8f0; }
+  .option.correct  { background: rgba(16,185,129,0.15); border-color: #10b981; color: #6ee7b7; }
+  .option.wrong    { background: rgba(239,68,68,0.15);  border-color: #ef4444; color: #fca5a5; }
+  .option .dot {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    border: 2px solid rgba(139,92,246,0.4);
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.7rem; font-weight: 700;
+  }
+  .option.selected .dot, .option.correct .dot { background: #7c3aed; border-color: #7c3aed; color: white; }
+  .option.correct .dot { background: #10b981; border-color: #10b981; }
+  .option.wrong .dot   { background: #ef4444; border-color: #ef4444; color: white; }
+
+  .feedback {
+    margin-top: 16px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 0.88rem;
+    font-weight: 500;
+    display: none;
+  }
+  .feedback.show { display: block; }
+  .feedback.ok  { background: rgba(16,185,129,0.1); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
+  .feedback.bad { background: rgba(239,68,68,0.1);  color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+
+  .btn-row { display: flex; justify-content: flex-end; gap: 12px; margin-top: 28px; }
+  button {
+    padding: 11px 28px;
+    border: none;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, #7c3aed, #a855f7);
+    color: white;
+    box-shadow: 0 4px 14px rgba(124,58,237,0.35);
+  }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(124,58,237,0.45); }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+  .btn-ghost {
+    background: rgba(255,255,255,0.06);
+    color: #94a3b8;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .btn-ghost:hover { background: rgba(255,255,255,0.1); color: #e2e8f0; }
+
+  /* Intro slide */
+  .intro-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 24px 0; }
+  .intro-card {
+    background: rgba(139,92,246,0.08);
+    border: 1px solid rgba(139,92,246,0.2);
+    border-radius: 12px;
+    padding: 16px;
+    font-size: 0.85rem;
+    color: #a78bfa;
+  }
+  .intro-card strong { display: block; color: #e2e8f0; margin-bottom: 4px; font-size: 0.95rem; }
+
+  /* Completion slide */
+  .score-ring {
+    width: 140px; height: 140px;
+    border-radius: 50%;
+    background: conic-gradient(#7c3aed var(--pct, 0%), rgba(139,92,246,0.1) 0%);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 24px;
+    box-shadow: 0 0 40px rgba(124,58,237,0.3);
+    position: relative;
+  }
+  .score-ring::before {
+    content: '';
+    position: absolute;
+    width: 110px; height: 110px;
+    border-radius: 50%;
+    background: #1e293b;
+  }
+  .score-num {
+    position: relative;
+    z-index: 1;
+    font-size: 2rem;
+    font-weight: 800;
+    color: #a78bfa;
+    text-align: center;
+  }
+  .score-num span { display: block; font-size: 0.65rem; color: #64748b; font-weight: 500; }
+  .result-badges { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 16px 0 24px; }
+  .badge {
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .badge-pass { background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
+  .badge-fail { background: rgba(239,68,68,0.15);  color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+  .badge-info { background: rgba(139,92,246,0.15); color: #a78bfa; border: 1px solid rgba(139,92,246,0.3); }
+
+  .scorm-log {
+    background: rgba(0,0,0,0.3);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 0.78rem;
+    color: #6ee7b7;
+    font-family: 'Courier New', monospace;
+    text-align: left;
+    line-height: 1.7;
+  }
+
+  @media (max-width: 600px) {
+    .card { padding: 24px 18px; }
+    .intro-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="header">
+    <div class="icon">🤖</div>
+    <div>
+      <h1>Final Assessment</h1>
+      <p>Google AI Agents & Swarm Architecture · College LMS</p>
+    </div>
+  </div>
+
+  <div class="progress-bar-wrap">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+
+  <!-- Slide 0: Intro -->
+  <div class="slide active" id="slide0">
+    <h2>Welcome to the Final Assessment</h2>
+    <p class="question" style="margin-bottom:0;">Test your understanding of parallel AI agent swarms, production SRE patterns, and realtime data streaming pipelines covered in this course.</p>
+    <div class="intro-grid">
+      <div class="intro-card"><strong>📋 Questions</strong>5 multiple-choice questions</div>
+      <div class="intro-card"><strong>✅ Passing Score</strong>60% or above</div>
+      <div class="intro-card"><strong>⏱️ Duration</strong>No time limit</div>
+      <div class="intro-card"><strong>🔄 Attempts</strong>Unlimited retries</div>
+    </div>
+    <div class="btn-row"><button class="btn-primary" onclick="startQuiz()">Begin Assessment →</button></div>
+  </div>
+
+  <!-- Slide 1 -->
+  <div class="slide" id="slide1">
+    <h2>Question 1 of 5</h2>
+    <p class="question">In a parallel AI agent swarm, what is the primary role of the <strong>Kernel / Orchestrator</strong>?</p>
+    <div class="options" id="opts1">
+      <div class="option" onclick="selectOption(1, 0, false)"><div class="dot">A</div>Execute all agent tasks sequentially to avoid race conditions</div>
+      <div class="option" onclick="selectOption(1, 1, true)"><div class="dot">B</div>Discover, initialise, and route work to autonomous child cells without hard dependencies</div>
+      <div class="option" onclick="selectOption(1, 2, false)"><div class="dot">C</div>Maintain a central database lock that each agent must acquire before working</div>
+      <div class="option" onclick="selectOption(1, 3, false)"><div class="dot">D</div>Store all agent results in a single Redis queue before processing</div>
+    </div>
+    <div class="feedback" id="fb1"></div>
+    <div class="btn-row">
+      <button class="btn-ghost" onclick="prevSlide(1)">← Back</button>
+      <button class="btn-primary" id="next1" onclick="nextSlide(1)" disabled>Next →</button>
+    </div>
+  </div>
+
+  <!-- Slide 2 -->
+  <div class="slide" id="slide2">
+    <h2>Question 2 of 5</h2>
+    <p class="question">When using <strong>parallel swarm execution</strong>, which pattern prevents agents from producing stale or conflicting outputs?</p>
+    <div class="options" id="opts2">
+      <div class="option" onclick="selectOption(2, 0, false)"><div class="dot">A</div>Shared global mutable state with mutex locks</div>
+      <div class="option" onclick="selectOption(2, 1, false)"><div class="dot">B</div>Single-threaded execution with a master agent controlling all workers</div>
+      <div class="option" onclick="selectOption(2, 2, true)"><div class="dot">C</div>Immutable task payloads with agents writing only to their own scoped output channel</div>
+      <div class="option" onclick="selectOption(2, 3, false)"><div class="dot">D</div>Polling a central REST API every second to check for updates</div>
+    </div>
+    <div class="feedback" id="fb2"></div>
+    <div class="btn-row">
+      <button class="btn-ghost" onclick="prevSlide(2)">← Back</button>
+      <button class="btn-primary" id="next2" onclick="nextSlide(2)" disabled>Next →</button>
+    </div>
+  </div>
+
+  <!-- Slide 3 -->
+  <div class="slide" id="slide3">
+    <h2>Question 3 of 5</h2>
+    <p class="question">In the <strong>London Transit Streaming Pipeline</strong> demo, realtime bus position data was ingested using which approach?</p>
+    <div class="options" id="opts3">
+      <div class="option" onclick="selectOption(3, 0, false)"><div class="dot">A</div>Batch CSV uploads every 30 minutes via FTP</div>
+      <div class="option" onclick="selectOption(3, 1, false)"><div class="dot">B</div>WebSocket connections to each individual vehicle's onboard computer</div>
+      <div class="option" onclick="selectOption(3, 2, true)"><div class="dot">C</div>Streaming TfL API calls pushed into a GCP data pipeline with live agent processing</div>
+      <div class="option" onclick="selectOption(3, 3, false)"><div class="dot">D</div>Manual data entry by transport operators into a Google Sheet</div>
+    </div>
+    <div class="feedback" id="fb3"></div>
+    <div class="btn-row">
+      <button class="btn-ghost" onclick="prevSlide(3)">← Back</button>
+      <button class="btn-primary" id="next3" onclick="nextSlide(3)" disabled>Next →</button>
+    </div>
+  </div>
+
+  <!-- Slide 4 -->
+  <div class="slide" id="slide4">
+    <h2>Question 4 of 5</h2>
+    <p class="question">What is the recommended <strong>SRE strategy</strong> for log retention demonstrated in the course to prevent runaway storage costs?</p>
+    <div class="options" id="opts4">
+      <div class="option" onclick="selectOption(4, 0, false)"><div class="dot">A</div>Compress all logs into a single archive and store indefinitely in cold storage</div>
+      <div class="option" onclick="selectOption(4, 1, true)"><div class="dot">B</div>Automated time-based deletion policies triggered by agents that respect configurable retention windows</div>
+      <div class="option" onclick="selectOption(4, 2, false)"><div class="dot">C</div>Manually review and delete logs quarterly via SSH into each server</div>
+      <div class="option" onclick="selectOption(4, 3, false)"><div class="dot">D</div>Disable logging entirely in production to save costs</div>
+    </div>
+    <div class="feedback" id="fb4"></div>
+    <div class="btn-row">
+      <button class="btn-ghost" onclick="prevSlide(4)">← Back</button>
+      <button class="btn-primary" id="next4" onclick="nextSlide(4)" disabled>Next →</button>
+    </div>
+  </div>
+
+  <!-- Slide 5 -->
+  <div class="slide" id="slide5">
+    <h2>Question 5 of 5</h2>
+    <p class="question">Which statement best describes a <strong>fractal / hierarchical agent architecture</strong>?</p>
+    <div class="options" id="opts5">
+      <div class="option" onclick="selectOption(5, 0, false)"><div class="dot">A</div>A flat list of agents where every agent communicates directly with every other agent</div>
+      <div class="option" onclick="selectOption(5, 1, false)"><div class="dot">B</div>A single monolithic AI model that handles all tasks internally</div>
+      <div class="option" onclick="selectOption(5, 2, false)"><div class="dot">C</div>Agents that share a single global prompt context to ensure consistency</div>
+      <div class="option" onclick="selectOption(5, 3, true)"><div class="dot">D</div>Parent agents own and delegate to child agents, which can in turn own grandchild agents — each autonomous and self-contained</div>
+    </div>
+    <div class="feedback" id="fb5"></div>
+    <div class="btn-row">
+      <button class="btn-ghost" onclick="prevSlide(5)">← Back</button>
+      <button class="btn-primary" id="next5" onclick="submitQuiz()" disabled>Submit Assessment ✓</button>
+    </div>
+  </div>
+
+  <!-- Slide 6: Results -->
+  <div class="slide" id="slide6">
+    <div style="text-align:center; margin-bottom: 12px;">
+      <h2 style="font-size:1.3rem; margin-bottom: 8px;">Assessment Complete</h2>
+    </div>
+    <div class="score-ring" id="scoreRing">
+      <div class="score-num" id="scoreNum">0%<span>Score</span></div>
+    </div>
+    <div class="result-badges" id="resultBadges"></div>
+    <div class="scorm-log" id="scormLog"></div>
+    <div class="btn-row" style="justify-content:center; margin-top:24px;">
+      <button class="btn-ghost" onclick="retakeQuiz()">↺ Retake</button>
+      <button class="btn-primary" onclick="returnToCourse()">Return to Course ➔</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SCORM 1.2 API ──────────────────────────────────────────────────────────
+let API = null;
+function findAPI(win) {
+  let tries = 0;
+  while (!win.API && win.parent && win.parent !== win && tries < 10) {
+    win = win.parent; tries++;
+  }
+  return win.API || null;
+}
+function scormInit() {
+  API = findAPI(window);
+  if (!API && window.parent) API = findAPI(window.parent);
+  if (API) { API.LMSInitialize(''); }
+}
+function scormFinish(score, passed) {
+  if (!API) return;
+  API.LMSSetValue('cmi.core.score.raw', String(score));
+  API.LMSSetValue('cmi.core.score.min', '0');
+  API.LMSSetValue('cmi.core.score.max', '100');
+  API.LMSSetValue('cmi.core.lesson_status', passed ? 'passed' : 'failed');
+  API.LMSSetValue('cmi.core.exit', 'normal');
+  API.LMSCommit('');
+  API.LMSFinish('');
+}
+scormInit();
+
+// ── Quiz State ─────────────────────────────────────────────────────────────
+const TOTAL_Q = 5;
+const answers  = new Array(TOTAL_Q + 1).fill(null);  // 1-indexed
+let currentSlide = 0;
+
+function updateProgress() {
+  const pct = (currentSlide / (TOTAL_Q + 1)) * 100;
+  document.getElementById('progressBar').style.width = pct + '%';
+}
+
+function showSlide(n) {
+  document.querySelectorAll('.slide').forEach(s => s.classList.remove('active'));
+  document.getElementById('slide' + n).classList.add('active');
+  currentSlide = n;
+  updateProgress();
+}
+
+function startQuiz() { showSlide(1); }
+
+function selectOption(q, idx, correct) {
+  const opts = document.querySelectorAll('#opts' + q + ' .option');
+  // If already answered, ignore
+  if (answers[q] !== null) return;
+  answers[q] = correct;
+  opts.forEach((o, i) => {
+    o.onclick = null;
+    if (i === idx) o.classList.add(correct ? 'correct' : 'wrong');
+  });
+  // Also highlight correct answer if wrong was chosen
+  if (!correct) {
+    opts.forEach((o, i) => {
+      if (o.onclick === null && o.textContent && answers[q] !== null) return;
+    });
+    // find and mark correct
+    const allOpts = document.querySelectorAll('#opts' + q + ' .option');
+    allOpts.forEach(o => {
+      if (o.getAttribute('onclick') && o.getAttribute('onclick').includes('true')) {
+        o.classList.add('correct');
+      }
+    });
+  }
+  const fb = document.getElementById('fb' + q);
+  fb.classList.add('show', correct ? 'ok' : 'bad');
+  fb.textContent = correct
+    ? '✅ Correct! Well done.'
+    : '❌ Not quite — the correct answer has been highlighted above.';
+  document.getElementById('next' + (q === 5 ? '5' : q)).disabled = false;
+}
+
+function nextSlide(from) {
+  if (answers[from] === null) return;
+  showSlide(from + 1);
+}
+function prevSlide(from) {
+  showSlide(from - 1);
+}
+
+function submitQuiz() {
+  const correct = answers.slice(1).filter(a => a === true).length;
+  const score   = Math.round((correct / TOTAL_Q) * 100);
+  const passed  = score >= 60;
+
+  // Score ring animation
+  document.getElementById('scoreRing').style.setProperty('--pct', score + '%');
+  document.getElementById('scoreNum').innerHTML = score + '%<span>Score</span>';
+
+  // Badges
+  const badges = document.getElementById('resultBadges');
+  badges.innerHTML = `
+    <span class="badge ${passed ? 'badge-pass' : 'badge-fail'}">${passed ? '🏆 PASSED' : '❌ FAILED'}</span>
+    <span class="badge badge-info">📊 ${correct}/${TOTAL_Q} Correct</span>
+    <span class="badge badge-info">${passed ? '🎓 Certified' : '🔄 Retry Recommended'}</span>
+  `;
+
+  // SCORM log
+  document.getElementById('scormLog').innerHTML = `
+> LMSInitialize('') → true<br>
+> LMSSetValue('cmi.core.score.raw', '${score}')<br>
+> LMSSetValue('cmi.core.lesson_status', '${passed ? 'passed' : 'failed'}')<br>
+> LMSCommit('') → true<br>
+> LMSFinish('') → true<br>
+> Status reported to College LMS ✓
+  `;
+
+  scormFinish(score, passed);
+  showSlide(6);
+  document.getElementById('progressBar').style.width = '100%';
+}
+
+function retakeQuiz() {
+  answers.fill(null);
+  // Reset options
+  for (let q = 1; q <= TOTAL_Q; q++) {
+    const opts = document.querySelectorAll('#opts' + q + ' .option');
+    opts.forEach(o => {
+      o.classList.remove('correct', 'wrong', 'selected');
+      // Restore onclick
+    });
+    const fb = document.getElementById('fb' + q);
+    fb.classList.remove('show', 'ok', 'bad');
+    fb.textContent = '';
+    const nextBtn = document.getElementById('next' + q);
+    if (nextBtn) nextBtn.disabled = true;
+  }
+  // Restore click handlers
+  document.querySelectorAll('#opts1 .option').forEach((o, i) =>
+    o.onclick = () => selectOption(1, i, i === 1));
+  document.querySelectorAll('#opts2 .option').forEach((o, i) =>
+    o.onclick = () => selectOption(2, i, i === 2));
+  document.querySelectorAll('#opts3 .option').forEach((o, i) =>
+    o.onclick = () => selectOption(3, i, i === 2));
+  document.querySelectorAll('#opts4 .option').forEach((o, i) =>
+    o.onclick = () => selectOption(4, i, i === 1));
+  document.querySelectorAll('#opts5 .option').forEach((o, i) =>
+    o.onclick = () => selectOption(5, i, i === 3));
+  scormInit();
+  showSlide(1);
+}
+
+function returnToCourse() {
+  if (API) { API.LMSFinish(''); }
+  const course = 'mastering-google-ai-agents-swarm';
+  window.parent.location.href = '/lms/courses/' + course;
+}
+</script>
+</body>
+</html>

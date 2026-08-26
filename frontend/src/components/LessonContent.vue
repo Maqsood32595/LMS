@@ -1,5 +1,18 @@
 <template>
-	<div v-if="youtubeEmbedId(youtube)" :key="youtubeEmbedId(youtube)">
+	<div v-if="isVideoFile(youtube)" class="mb-6 rounded-xl overflow-hidden shadow-lg bg-black">
+		<video
+			controls
+			width="100%"
+			controlsList="nodownload"
+			class="w-full aspect-video"
+			preload="metadata"
+			@ended="$emit('video-ended')"
+		>
+			<source :src="safeUrl(youtube)" type="video/mp4" />
+			Your browser does not support HTML5 video.
+		</video>
+	</div>
+	<div v-else-if="youtubeEmbedId(youtube)" :key="youtubeEmbedId(youtube)">
 		<div
 			class="video-player"
 			data-plyr-provider="youtube"
@@ -89,6 +102,8 @@ const markdown = new MarkdownIt({
 // hook and the form-tag blocklist live. This only does the markdown pass.
 const renderMarkdown = (block) => markdown.render(block)
 
+const emit = defineEmits(['video-ended'])
+
 const props = defineProps({
 	content: {
 		type: String,
@@ -117,4 +132,14 @@ const getId = (block) => {
 // Falsy id => render nothing rather than a Plyr player with no video, which
 // would suppress the dwell timer and leave the lesson uncompletable.
 const youtubeEmbedId = (source) => (source ? extractYoutubeID(source) : '')
+
+const isVideoFile = (source) => {
+	if (!source || typeof source !== 'string') return false
+	return (
+		source.startsWith('/media/') ||
+		source.startsWith('/files/') ||
+		source.startsWith('blob:') ||
+		/\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i.test(source)
+	)
+}
 </script>

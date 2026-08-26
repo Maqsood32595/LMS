@@ -634,7 +634,11 @@ const articles = ref([
 ])
 
 const setUpOnboarding = () => {
-	if (userResource.data?.is_system_manager) {
+	if (
+		userResource.data?.is_system_manager ||
+		userResource.data?.is_instructor ||
+		userResource.data?.is_moderator
+	) {
 		onboardingDetails = useOnboarding('learning')
 		onboardingDetails.setUp(steps)
 		isOnboardingStepsCompleted = onboardingDetails.isOnboardingStepsCompleted

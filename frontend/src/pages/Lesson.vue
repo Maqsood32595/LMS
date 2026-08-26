@@ -285,6 +285,7 @@
 								:content="lesson.data.body"
 								:youtube="lesson.data.youtube"
 								:quizId="lesson.data.quiz_id"
+								@video-ended="markProgress"
 							/>
 						</div>
 					</div>

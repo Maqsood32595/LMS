@@ -379,11 +379,18 @@ async function getLesson({ course, chapter, lesson, user } = {}) {
     if (!row) throw Object.assign(new Error('Lesson not found'), { status: 404 });
 
     let membership = null;
+    let isLessonCompleted = false;
     if (user) {
         const u = await db.query('SELECT id FROM users WHERE lower(email)=lower($1) LIMIT 1', [user]);
         if (u[0]) {
             const enr = await db.query('SELECT progress, status FROM enrollments WHERE member_id=$1 AND course_id=$2 LIMIT 1', [u[0].id, c.id]);
             if (enr[0]) membership = { progress: Number(enr[0].progress), status: enr[0].status, course: c.name, member: user };
+
+            const cp = await db.query(
+                'SELECT 1 FROM course_progress WHERE member_id=$1 AND lesson_id=$2 AND completed_at IS NOT NULL LIMIT 1',
+                [u[0].id, row.id]
+            );
+            isLessonCompleted = Boolean(cp[0]);
         }
     }
 
@@ -393,11 +400,14 @@ async function getLesson({ course, chapter, lesson, user } = {}) {
         try { videoUrl = await gcloud.generateSignedUrl(row.file); } catch (_) {}
     }
 
-    let editorContent = row.body || '';
-    if (editorContent && !editorContent.startsWith('{')) {
-        editorContent = JSON.stringify({
-            blocks: [{ type: 'paragraph', data: { text: editorContent } }]
-        });
+    let editorContent = null;
+    if (row.body && row.body.trim().startsWith('{')) {
+        try {
+            JSON.parse(row.body);
+            editorContent = row.body;
+        } catch (_) {
+            editorContent = null;
+        }
     }
 
     return {
@@ -408,8 +418,8 @@ async function getLesson({ course, chapter, lesson, user } = {}) {
         title: row.title,
         body: row.body,
         content_type: row.content_type,
-        youtube: row.youtube_id || (row.content_type === 'Video' ? 'M7lc1UVf-VE' : null),
-        file: videoUrl,
+        youtube: row.youtube || row.youtube_id || null,
+        file: row.file || videoUrl || null,
         quiz_id: row.quiz_id,
         duration: row.duration,
         include_in_preview: row.include_in_preview,
@@ -419,7 +429,7 @@ async function getLesson({ course, chapter, lesson, user } = {}) {
         course: c.name,
         course_title: c.title,
         membership,
-        progress: !!membership,
+        progress: isLessonCompleted,
         content: editorContent,
         instructor_content: null,
     };
@@ -1065,10 +1075,24 @@ const LIST_TABLES = {
     'LMS Coupon': "SELECT c.id::text AS name, c.code, c.discount_percentage, c.max_uses, c.used_count, c.created_at::text AS creation FROM coupons c",
     'Job Opportunity': "SELECT NULL::text AS name WHERE false",
 };
-async function clientGetList({ doctype, filters = {}, limit = 50, order_by } = {}) {
+async function clientGetList({ doctype, filters = {}, limit = 50, order_by, fields } = {}) {
     const base = LIST_TABLES[doctype];
-    if (!base) return [];
-    const parsedFilters = typeof filters === 'string' ? JSON.parse(filters) : filters || {};
+    if (!base || base.includes('WHERE false')) return [];
+
+    // ── Normalise filters: Frappe UI sends either object OR array-of-triples ──
+    let parsedFilters = typeof filters === 'string' ? JSON.parse(filters) : filters || {};
+    // Array-format: [["field","=","value"], ...] or [["field","like","val"]]
+    if (Array.isArray(parsedFilters)) {
+        const obj = {};
+        for (const triple of parsedFilters) {
+            if (!Array.isArray(triple) || triple.length < 3) continue;
+            const [field, op, val] = triple;
+            if (op === '=' || op === 'equals') obj[field] = val;
+            else if (op === 'like' || op === 'Like') obj[field] = ['like', val];
+        }
+        parsedFilters = obj;
+    }
+
     const where = [];
     const params = [];
     for (const [k, v] of Object.entries(parsedFilters)) {
@@ -1098,8 +1122,23 @@ async function clientGetList({ doctype, filters = {}, limit = 50, order_by } = {
             params.push(v[1]);
             where.push(`title ILIKE $${params.length}`);
         }
+        else if (k === 'title' && typeof v === 'string') {
+            params.push(v);
+            where.push(`title ILIKE $${params.length}`);
+        }
     }
-    const order = order_by ? `ORDER BY ${order_by}` : (base.includes('creation') ? 'ORDER BY creation DESC' : '');
+
+    // ── Safe order_by — only allow known safe columns, map Frappe aliases ────
+    const ORDER_MAP = {
+        'creation': 'creation', 'creation desc': 'creation DESC', 'creation asc': 'creation ASC',
+        'modified': 'creation', 'modified desc': 'creation DESC', 'modified asc': 'creation ASC',
+        'name': 'name', 'name desc': 'name DESC', 'name asc': 'name ASC',
+        'idx': 'idx', 'idx asc': 'idx ASC', 'idx desc': 'idx DESC',
+        'title': 'title', 'title asc': 'title ASC', 'title desc': 'title DESC',
+    };
+    const safeOrder = order_by ? (ORDER_MAP[String(order_by).toLowerCase().trim()] || null) : null;
+    const order = safeOrder ? `ORDER BY ${safeOrder}` : (base.includes('creation') ? 'ORDER BY creation DESC' : '');
+
     const sql = `${base} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ${order} LIMIT ${Number(limit) || 50}`;
     return db.query(sql, params);
 }
