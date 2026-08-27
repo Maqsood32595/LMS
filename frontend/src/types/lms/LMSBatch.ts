@@ -87,8 +87,8 @@ export interface LMSBatch {
 	google_meet_account?: string
 	/**	Preview Video : Attach	*/
 	video_link?: string
-	/**	Notification Sent : Check	*/
-	notification_sent?: 0 | 1
+	/**	Google Meet Link : Data	*/
+	meet_link?: string
 	/**	Evaluation : Check	*/
 	evaluation?: 0 | 1
 }

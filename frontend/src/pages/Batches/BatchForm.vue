@@ -272,8 +272,112 @@
 				<div class="border-b p-4">
 					<BatchCourses :batch="batch" />
 				</div>
-				<div class="p-4">
+				<div class="border-b p-4">
 					<Assessments :batch="batch.data?.name" />
+				</div>
+				<div class="p-4">
+					<div class="flex items-center justify-between mb-3">
+						<div class="text-ink-gray-9 font-semibold">
+							{{ __('Live Classroom') }}
+						</div>
+						<a
+							v-if="!isEditingMeetLink && !hasConfiguredRoom"
+							href="https://meet.google.com/new"
+							target="_blank"
+							rel="noopener noreferrer"
+							class="text-xs text-primary-600 hover:underline inline-flex items-center gap-1 font-medium"
+							:title="__('Open Google Meet to generate a new meeting room')"
+						>
+							<span class="lucide-external-link size-3.5" />
+							{{ __('Create on Google Meet') }}
+						</a>
+					</div>
+
+					<!-- Configured / Connected State -->
+					<div
+						v-if="hasConfiguredRoom && !isEditingMeetLink"
+						class="rounded-lg border border-outline-gray-2 bg-surface-gray-2 p-3 text-ink-gray-8 space-y-2.5"
+					>
+						<div class="flex items-center justify-between">
+							<div class="flex items-center gap-1.5 text-xs font-semibold text-ink-gray-9">
+								<span class="size-2 rounded-full bg-surface-green-3 inline-block" />
+								<span>{{ __('Google Meet Connected') }}</span>
+							</div>
+							<div class="flex items-center gap-1">
+								<Button
+									variant="ghost"
+									size="sm"
+									:title="__('Copy room link')"
+									@click="copyMeetLink"
+								>
+									<template #prefix>
+										<span class="lucide-copy size-3.5 text-ink-gray-6" />
+									</template>
+									<span class="text-xs">{{ __('Copy') }}</span>
+								</Button>
+								<Button
+									variant="ghost"
+									size="sm"
+									:title="__('Edit room link')"
+									@click="isEditingMeetLink = true"
+								>
+									<template #prefix>
+										<span class="lucide-pencil size-3.5 text-ink-gray-6" />
+									</template>
+									<span class="text-xs">{{ __('Edit') }}</span>
+								</Button>
+							</div>
+						</div>
+
+						<div class="text-xs text-ink-gray-6 font-mono truncate" :title="meetLinkInput">
+							{{ meetLinkInput }}
+						</div>
+
+						<div class="pt-0.5">
+							<a
+								:href="safeUrl(meetLinkInput)"
+								target="_blank"
+								rel="noopener noreferrer"
+								class="inline-flex items-center justify-center gap-1.5 w-full rounded border border-outline-gray-3 bg-surface-base px-2.5 py-1 text-xs font-medium text-ink-gray-8 hover:bg-surface-gray-3 transition-colors"
+							>
+								<span class="lucide-video size-3.5 text-ink-gray-6" />
+								{{ __('Test / Join Room') }}
+							</a>
+						</div>
+					</div>
+
+					<!-- Setup / Edit Mode -->
+					<div v-else class="space-y-3">
+						<FormControl
+							v-model="meetLinkInput"
+							:label="__('Google Meet Link')"
+							type="text"
+							:placeholder="__('https://meet.google.com/xxx-yyyy-zzz')"
+							variant="outline"
+						/>
+						<div class="flex items-center gap-2">
+							<Button
+								v-if="batch.data?.name || batchDetail.doc?.name"
+								variant="subtle"
+								size="sm"
+								:loading="savingMeetLink"
+								@click="saveMeetLinkIndependently"
+							>
+								<template #prefix>
+									<span class="lucide-check size-3.5" />
+								</template>
+								{{ __('Save Link') }}
+							</Button>
+							<Button
+								v-if="isEditingMeetLink"
+								variant="ghost"
+								size="sm"
+								@click="isEditingMeetLink = false"
+							>
+								{{ __('Cancel') }}
+							</Button>
+						</div>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -299,11 +403,13 @@ import {
 import {
 	Combobox,
 	FormControl,
+	Button,
 	createDocumentResource,
 	createResource,
 	toast,
 	call,
 } from 'frappe-ui'
+import { safeUrl } from '@/utils/safeUrl'
 import { InputLabel, useInputLabeling } from '@/components/Form/labeling'
 import { useDebounceFn } from '@vueuse/core'
 import BooleanSwitch from '@/components/Controls/BooleanSwitch.vue'
@@ -369,6 +475,78 @@ const batchDetail = createDocumentResource({
 	name: props.batch.data?.name,
 	auto: true,
 }) as Resource<LMSBatch | null>
+
+const meetLinkInput = ref<string>(props.batch.data?.meet_link || '')
+const savingMeetLink = ref<boolean>(false)
+const isEditingMeetLink = ref<boolean>(false)
+
+const hasConfiguredRoom = computed<boolean>(() => {
+	const link = meetLinkInput.value?.trim()
+	return Boolean(link && link !== 'https://meet.google.com/new')
+})
+
+watch(
+	() => props.batch.data?.meet_link,
+	(v) => {
+		if (v) meetLinkInput.value = v
+	},
+	{ immediate: true }
+)
+
+watch(
+	() => batchDetail.doc?.meet_link,
+	(v) => {
+		if (v && !meetLinkInput.value) meetLinkInput.value = v
+	}
+)
+
+const copyMeetLink = async (): Promise<void> => {
+	if (!meetLinkInput.value) return
+	try {
+		await navigator.clipboard.writeText(meetLinkInput.value.trim())
+		toast({
+			title: __('Copied'),
+			message: __('Meeting room link copied to clipboard!'),
+			icon: 'check',
+		})
+	} catch (_) {
+		toast({
+			title: __('Copy'),
+			message: meetLinkInput.value.trim(),
+			icon: 'check',
+		})
+	}
+}
+
+const saveMeetLinkIndependently = async (): Promise<void> => {
+	const batchName = props.batch.data?.name || batchDetail.doc?.name
+	if (!batchName) return
+	savingMeetLink.value = true
+	try {
+		await call('frappe.client.set_value', {
+			doctype: 'LMS Batch',
+			name: batchName,
+			fieldname: 'meet_link',
+			value: meetLinkInput.value.trim(),
+		})
+		if (props.batch.data) props.batch.data.meet_link = meetLinkInput.value.trim()
+		if (batchDetail.doc) batchDetail.doc.meet_link = meetLinkInput.value.trim()
+		isEditingMeetLink.value = false
+		toast({
+			title: __('Success'),
+			message: __('Google Meet link updated!'),
+			icon: 'check',
+		})
+	} catch (e: any) {
+		toast({
+			title: __('Error'),
+			message: e?.message || __('Failed to update link'),
+			icon: 'alert-circle',
+		})
+	} finally {
+		savingMeetLink.value = false
+	}
+}
 
 const openEmailTemplateForm = (): void => {
 	openBatchForm(

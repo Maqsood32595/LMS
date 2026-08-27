@@ -1026,6 +1026,8 @@ async function deleteDocuments({ documents, user } = {}) {
     for (const d of Array.isArray(documents) ? documents : []) {
         if (d.doctype === 'LMS Question' && d.name) {
             await db.query('DELETE FROM questions WHERE id::text = $1', [d.name]);
+        } else if (d.doctype === 'LMS Live Class' && d.name) {
+            await db.query('DELETE FROM live_classes WHERE id::text = $1', [d.name]);
         }
     }
     return { ok: true };
@@ -1096,6 +1098,7 @@ const LIST_TABLES = {
     'LMS Assignment': "SELECT a.id::text AS name, a.title, a.instructions, a.max_score, a.created_at::text AS creation FROM assignments a",
     'LMS Assignment Submission': "SELECT sub.id::text AS name, sub.assignment_id::text AS assignment, sub.submission_text, sub.status, sub.score, sub.feedback, sub.submitted_at::text AS creation FROM assignment_submissions sub",
     'LMS Coupon': "SELECT c.id::text AS name, c.code, c.discount_percentage, c.max_uses, c.used_count, c.created_at::text AS creation FROM coupons c",
+    'LMS Live Class': "SELECT lc.id::text AS name, lc.title, '' AS description, TO_CHAR(lc.start_time, 'YYYY-MM-DD') AS date, TO_CHAR(lc.start_time, 'HH24:MI') AS time, lc.duration_minutes AS duration, 0 AS attendees, lc.meet_link AS start_url, lc.meet_link AS join_url, lc.platform AS conferencing_provider, b.name AS batch_name, u.email AS owner, lc.created_at::text AS creation FROM live_classes lc LEFT JOIN batches b ON b.id = lc.batch_id LEFT JOIN users u ON u.id = lc.host_id",
     'Job Opportunity': "SELECT NULL::text AS name WHERE false",
 };
 async function clientGetList({ doctype, filters = {}, limit = 50, order_by, fields } = {}) {
@@ -1126,6 +1129,10 @@ async function clientGetList({ doctype, filters = {}, limit = 50, order_by, fiel
             } else {
                 where.push(`member_id = (SELECT id FROM users WHERE lower(email)=lower($${params.length}))`);
             }
+        }
+        else if (k === 'batch_name' || k === 'batch') {
+            params.push(v);
+            where.push(`(b.name = $${params.length} OR b.id::text = $${params.length})`);
         }
         else if (k === 'course') {
             params.push(v);
@@ -1453,6 +1460,37 @@ async function clientSetValue({ doctype, name, fieldname, value, user } = {}) {
         }
         return { ok: true, name };
     }
+    if (doctype === 'LMS Batch' && name) {
+        const colMap = {
+            title: 'title',
+            description: 'description',
+            published: 'published',
+            start_date: 'start_date',
+            end_date: 'end_date',
+            seats: 'seats',
+            meet_link: 'meet_link',
+            live_meeting_url: 'meet_link',
+            conferencing_provider: 'conferencing_provider',
+            google_meet_account: 'google_meet_account',
+        };
+        const updates = typeof fieldname === 'object' && fieldname !== null
+            ? fieldname
+            : { [fieldname]: value };
+
+        const sets = [];
+        const params = [];
+        for (const [k, v] of Object.entries(updates)) {
+            const col = colMap[k];
+            if (!col) continue;
+            params.push(v);
+            sets.push(`${col} = $${params.length}`);
+        }
+        if (sets.length > 0) {
+            params.push(name);
+            await db.query(`UPDATE batches SET ${sets.join(', ')} WHERE name = $${params.length} OR id::text = $${params.length}`, params);
+        }
+        return { ok: true, name };
+    }
     if ((doctype === 'Discussion Reply' || doctype === 'Discussion Topic') && name) {
         if (fieldname === 'reply' || fieldname === 'content') {
             await db.query('UPDATE discussions SET content = $1, updated_at = NOW() WHERE id::text = $2', [value, name]);
@@ -1560,6 +1598,8 @@ async function getBatchDetails({ batch, user } = {}) {
     }
     return {
         ...b,
+        conferencing_provider: b.conferencing_provider || 'Google Meet',
+        google_meet_account: b.google_meet_account || 'admin@fractallms.app',
         instructors: staff || [],
         is_enrolled: isEnrolled,
         courses: [],
@@ -1930,6 +1970,55 @@ async function markAllNotificationsAsRead(sessionEmail) {
     return { ok: true };
 }
 
+async function createBatchLiveClass(params, sessionEmail) {
+    const u = await requireUser(sessionEmail);
+    if (u.role === 'student') {
+        throw Object.assign(new Error('Only Course Creators can schedule live classes'), { status: 403, exc_type: 'PermissionError' });
+    }
+    const batchName = params.batch_name || params.batch;
+    let batchId = null;
+    if (batchName) {
+        const b = await db.query('SELECT id FROM batches WHERE name=$1 OR id::text=$1 LIMIT 1', [batchName]);
+        if (b[0]) batchId = b[0].id;
+    }
+    const title = params.title || 'Live Class';
+    const date = params.date || new Date().toISOString().split('T')[0];
+    const time = params.time || '10:00';
+    const startTime = new Date(`${date}T${time}:00`);
+    const duration = Number(params.duration) || 60;
+    const platform = params.conferencing_provider || params.platform || 'Google Meet';
+    let meetLink = params.join_url?.trim();
+    if (!meetLink && batchName) {
+        const bRow = await db.query('SELECT meet_link FROM batches WHERE name=$1 OR id::text=$1 LIMIT 1', [batchName]);
+        if (bRow[0]?.meet_link) meetLink = bRow[0].meet_link;
+    }
+    if (!meetLink) {
+        const letters = 'abcdefghijklmnopqrstuvwxyz';
+        const pick = (len) => Array.from({ length: len }, () => letters[Math.floor(Math.random() * letters.length)]).join('');
+        const meetCode = `${pick(3)}-${pick(4)}-${pick(3)}`;
+        meetLink = platform === 'Zoom' ? `https://zoom.us/j/${Math.floor(1000000000 + Math.random() * 9000000000)}` : `https://meet.google.com/${meetCode}`;
+    }
+
+    const ins = await db.query(
+        `INSERT INTO live_classes (title, batch_id, host_id, start_time, duration_minutes, platform, meet_link)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        [title, batchId, u.id, startTime, duration, platform, meetLink]
+    );
+    return {
+        doctype: 'LMS Live Class',
+        name: ins[0].id,
+        id: ins[0].id,
+        title,
+        batch_name: batchName,
+        date,
+        time,
+        duration,
+        conferencing_provider: platform,
+        join_url: meetLink,
+        start_url: meetLink,
+    };
+}
+
 module.exports = {
     login, getUserInfo, getProfileDetails, getLmsSettings, getBranding, getSidebarSettings,
     getAllUsers, getPwaManifest, myCourses, createdCourses, upcomingLiveClasses,
@@ -1945,4 +2034,5 @@ module.exports = {
     getMembers, getMember, saveRole, deleteMember,
     saveEvaluationDetails, getOrderSummary, getPaymentLink,
     getNotifications, markNotificationAsRead, markAllNotificationsAsRead, createNotification,
+    createBatchLiveClass,
 };

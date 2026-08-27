@@ -285,8 +285,6 @@ const STUBS = {
     'lms.lms.api.update_sidebar_item': null,
     'lms.lms.api.get_evaluator_details': null,
     'lms.lms.email_account.create_email_account': null,
-    'lms.lms.doctype.lms_batch.lms_batch.create_live_class': null,
-    'lms.lms.doctype.lms_batch.lms_batch.create_google_meet_live_class': null,
     'lms.lms.doctype.lms_certificate.lms_certificate.create_certificate': null,
     'lms.lms.utils.enroll_in_batch': null,
     'lms.lms.utils.enroll_in_program': null,
@@ -294,6 +292,9 @@ const STUBS = {
 for (const [name, payload] of Object.entries(STUBS)) {
     router.all('/' + name, (_req, res) => res.json({ message: payload }));
 }
+
+router.all('/lms.lms.doctype.lms_batch.lms_batch.create_google_meet_live_class', read((req) => service.createBatchLiveClass(req.body || {}, req.fractalUser)));
+router.all('/lms.lms.doctype.lms_batch.lms_batch.create_live_class', read((req) => service.createBatchLiveClass(req.body || {}, req.fractalUser)));
 
 router.get('/lms.lms.api.get_pwa_manifest', (_req, res) => res.json(service.getPwaManifest()));
 

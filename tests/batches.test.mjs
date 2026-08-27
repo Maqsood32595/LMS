@@ -118,13 +118,66 @@ async function j(url, opts = {}) {
     assert.equal(illegalCreate.res.status, 403, 'Student creating batch rejected 403');
     console.log('  ✅ 7. Verified role security guard (student rejected 403)');
 
-    console.log('\n🎉 ALL 7 BATCHES & COHORTS IN-RAM TESTS PASSED!\n');
+    // 9. Set permanent meet_link on batch via frappe.client.set_value
+    const setValRes = await j('/api/method/frappe.client.set_value', {
+        method: 'POST',
+        headers: adminAuth,
+        body: JSON.stringify({
+            doctype: 'LMS Batch',
+            name: batchName,
+            fieldname: 'meet_link',
+            value: 'https://meet.google.com/qwe-rtyu-iop',
+        }),
+    });
+    assert.equal(setValRes.res.status, 200, 'set_value meet_link status');
+    
+    // Verify get_batch_details returns updated meet_link
+    const updatedDetailRes = await j(`/api/method/lms.lms.utils.get_batch_details?batch=${encodeURIComponent(batchName)}`, {
+        method: 'GET',
+        headers: adminAuth,
+    });
+    assert.equal(updatedDetailRes.body.message?.meet_link, 'https://meet.google.com/qwe-rtyu-iop', 'meet_link returned in batch details');
+    console.log('  ✅ 8. Verified permanent meet_link update on batch');
 
-    // ── Teardown: clean up test batch and student created during this run ──
+    // 10. Schedule live class auto-inheriting batch meet_link
+    const liveClassRes = await j('/api/method/lms.lms.doctype.lms_batch.lms_batch.create_google_meet_live_class', {
+        method: 'POST',
+        headers: adminAuth,
+        body: JSON.stringify({
+            batch_name: batchName,
+            title: 'Batch Distributed Masterclass',
+            date: '2026-11-01',
+            time: '11:00',
+            duration: 90,
+        }),
+    });
+    assert.equal(liveClassRes.res.status, 200, 'create_google_meet_live_class status');
+    assert.equal(liveClassRes.body.message?.join_url, 'https://meet.google.com/qwe-rtyu-iop', 'Auto-inherits batch permanent meet_link');
+    const createdClassId = liveClassRes.body.message?.id || liveClassRes.body.message?.name;
+    console.log('  ✅ 9. Verified live class auto-inherited batch permanent meet_link');
+
+    // 11. Delete live class via delete_documents
+    const delClassRes = await j('/api/method/lms.lms.api.delete_documents', {
+        method: 'POST',
+        headers: adminAuth,
+        body: JSON.stringify({
+            documents: [{ doctype: 'LMS Live Class', name: createdClassId }],
+        }),
+    });
+    assert.equal(delClassRes.res.status, 200, 'delete_documents status');
+    console.log('  ✅ 10. Verified 1-click delete live class via delete_documents');
+
+    console.log('\n🎉 ALL 10 BATCHES & COHORTS IN-RAM TESTS PASSED!\n');
+
+    // ── Teardown: clean up test batch, live class, and student created during this run ──
     try {
         const { default: pg } = await import('pg');
         const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
         await client.connect();
+        if (createdClassId) {
+            await client.query('DELETE FROM live_classes WHERE id::text = $1', [createdClassId]);
+        }
+        await client.query('DELETE FROM live_classes WHERE batch_id IN (SELECT id FROM batches WHERE name = $1)', [batchName]);
         await client.query('DELETE FROM batches WHERE name = $1', [batchName]);
         await client.query('DELETE FROM users WHERE email = $1', [studentEmail]);
         await client.query(`

@@ -1,19 +1,5 @@
 <template>
 	<div class="p-5">
-		<div
-			v-if="isAdmin() && !hasProviderAccount()"
-			class="flex lg:items-center gap-x-2 mb-5 bg-surface-amber-1 px-3 py-2 rounded-lg text-ink-amber-6"
-		>
-			<span class="lucide-alert-circle size-7 md:size-4" />
-			<span class="leading-5">
-				{{
-					__(
-						'Please select a conferencing provider and add an account to the batch to create live classes.'
-					)
-				}}
-			</span>
-		</div>
-
 		<div class="flex items-center justify-between">
 			<div class="text-lg-semibold text-ink-gray-9">
 				{{ __('Live Class') }}
@@ -38,7 +24,7 @@
 			<div
 				v-for="cls in liveClasses.data"
 				:key="cls.name"
-				class="flex flex-col border rounded-md h-full text-ink-gray-7 hover:border-outline-gray-3 p-3"
+				class="flex flex-col border rounded-md h-full text-ink-gray-7 hover:border-outline-gray-3 p-3 relative group"
 				:class="{
 					'cursor-pointer': isAdmin() && cls.attendees > 0,
 				}"
@@ -55,54 +41,80 @@
 					{{ cls.description }}
 				</div>
 				<div class="mt-auto space-y-3">
-					<div class="flex items-center gap-x-2">
-						<span class="lucide-calendar w-4 h-4" />
+					<div class="flex items-center gap-x-2 text-p-sm">
+						<span class="lucide-calendar w-4 h-4 text-ink-gray-5" />
 						<span>
 							{{ dayjs(cls.date).format('DD MMMM YYYY') }}
 						</span>
 					</div>
-					<div class="flex items-center gap-x-2">
-						<span class="lucide-clock w-4 h-4" />
+					<div class="flex items-center gap-x-2 text-p-sm">
+						<span class="lucide-clock w-4 h-4 text-ink-gray-5" />
 						<span>
 							{{ dayjs(getClassStart(cls)).format('hh:mm A') }} -
 							{{ dayjs(getClassEnd(cls)).format('hh:mm A') }}
 						</span>
 					</div>
-					<div
-						v-if="canAccessClass(cls) && cls.join_url"
-						class="flex items-center gap-x-2 text-ink-gray-9 mt-auto"
-					>
-						<a
-							v-if="user.data?.is_moderator || user.data?.is_evaluator"
-							:href="safeUrl(cls.start_url || cls.join_url)"
-							v-external
-							class="cursor-pointer inline-flex items-center justify-center gap-2 transition-colors focus:outline-none text-ink-gray-8 bg-surface-gray-2 hover:bg-surface-gray-3 active:bg-surface-gray-4 focus-visible:ring focus-visible:ring-outline-gray-3 h-7 text-base px-2 rounded"
-							:class="cls.join_url ? 'w-full' : 'w-1/2'"
+
+					<div class="flex items-center justify-between mt-auto pt-2 border-t border-outline-gray-1">
+						<div
+							v-if="canAccessClass(cls) && cls.join_url"
+							class="flex items-center gap-x-2 text-ink-gray-9 flex-1"
 						>
-							<span class="lucide-monitor h-4 w-4" />
-							{{ __('Start') }}
-						</a>
-						<a
-							:href="safeUrl(cls.join_url)"
-							v-external
-							class="w-full cursor-pointer inline-flex items-center justify-center gap-2 transition-colors focus:outline-none text-ink-gray-8 bg-surface-gray-2 hover:bg-surface-gray-3 active:bg-surface-gray-4 focus-visible:ring focus-visible:ring-outline-gray-3 h-7 text-base px-2 rounded"
-						>
-							<span class="lucide-video h-4 w-4" />
-							{{ __('Join') }}
-						</a>
-					</div>
-					<Tooltip
-						v-else-if="hasClassEnded(cls)"
-						:text="__('This class has ended')"
-						placement="right"
-					>
-						<div class="flex items-center gap-x-2 text-ink-amber-6 w-fit">
-							<span class="lucide-info w-4 h-4" />
-							<span>
-								{{ __('Ended') }}
-							</span>
+							<a
+								v-if="user.data?.is_moderator || user.data?.is_evaluator"
+								:href="safeUrl(cls.start_url || cls.join_url)"
+								v-external
+								class="cursor-pointer inline-flex items-center justify-center gap-2 transition-colors focus:outline-none text-ink-gray-8 bg-surface-gray-2 hover:bg-surface-gray-3 active:bg-surface-gray-4 focus-visible:ring focus-visible:ring-outline-gray-3 h-7 text-p-sm px-2 rounded"
+								:class="cls.join_url ? 'w-full' : 'w-1/2'"
+							>
+								<span class="lucide-monitor h-4 w-4" />
+								{{ __('Start') }}
+							</a>
+							<a
+								:href="safeUrl(cls.join_url)"
+								v-external
+								class="w-full cursor-pointer inline-flex items-center justify-center gap-2 transition-colors focus:outline-none text-ink-gray-8 bg-surface-gray-2 hover:bg-surface-gray-3 active:bg-surface-gray-4 focus-visible:ring focus-visible:ring-outline-gray-3 h-7 text-p-sm px-2 rounded"
+							>
+								<span class="lucide-video h-4 w-4" />
+								{{ __('Join') }}
+							</a>
 						</div>
-					</Tooltip>
+						<Tooltip
+							v-else-if="hasClassEnded(cls)"
+							:text="__('This class has ended')"
+							placement="right"
+						>
+							<div class="flex items-center gap-x-2 text-ink-amber-6 w-fit text-p-sm">
+								<span class="lucide-info w-4 h-4" />
+								<span>
+									{{ __('Ended') }}
+								</span>
+							</div>
+						</Tooltip>
+						<Tooltip
+							v-else-if="cls.date > dayjs().format('YYYY-MM-DD')"
+							:text="__('Class scheduled for ' + dayjs(cls.date).format('DD MMMM YYYY'))"
+							placement="right"
+						>
+							<div class="flex items-center gap-x-2 text-ink-blue-6 w-fit text-p-sm">
+								<span class="lucide-calendar-clock w-4 h-4" />
+								<span>
+									{{ __('Upcoming') }}
+								</span>
+							</div>
+						</Tooltip>
+
+						<!-- Small Trash Delete Icon in Lower Right Bottom Corner -->
+						<button
+							v-if="isAdmin()"
+							type="button"
+							class="text-ink-gray-4 hover:text-ink-red-6 transition-colors p-1 rounded hover:bg-surface-gray-2 ms-2 shrink-0"
+							:title="__('Delete live class')"
+							@click.stop="(e) => deleteLiveClass(cls, e)"
+						>
+							<span class="lucide-trash-2 size-3.5" />
+						</button>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -122,8 +134,8 @@
 // modal — but carries nested Start/Join anchors, so it cannot become a
 // <button> without invalid nesting. Reaching it by keyboard needs a dedicated
 // action control, which is a redesign rather than an attribute.
-import { createListResource, Button, Tooltip } from 'frappe-ui'
-import { inject, ref } from 'vue'
+import { createListResource, Button, Tooltip, call, toast } from 'frappe-ui'
+import { inject, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { formatTime } from '@/utils/'
 import { openBatchForm } from '@/composables/useBatchForms'
@@ -144,6 +156,44 @@ const props = defineProps({
 		required: true,
 	},
 })
+
+const permanentMeetUrl = ref(props.batch.data?.meet_link || '')
+watch(
+	() => props.batch.data?.meet_link,
+	(val) => {
+		if (val) permanentMeetUrl.value = val
+	}
+)
+
+const savePermanentMeetUrl = async () => {
+	if (!permanentMeetUrl.value.trim()) return
+	try {
+		await call('frappe.client.set_value', {
+			doctype: 'LMS Batch',
+			name: props.batch.data?.name,
+			fieldname: 'meet_link',
+			value: permanentMeetUrl.value.trim(),
+		})
+		if (props.batch.data) props.batch.data.meet_link = permanentMeetUrl.value.trim()
+		toast({ title: __('Success'), message: __('Permanent classroom room link saved!'), icon: 'check' })
+	} catch (e) {
+		toast({ title: __('Error'), message: e.message || __('Failed to save room link'), icon: 'alert-circle' })
+	}
+}
+
+const deleteLiveClass = async (cls, event) => {
+	event?.stopPropagation()
+	if (!confirm(__('Are you sure you want to delete this live class?'))) return
+	try {
+		await call('lms.lms.api.delete_documents', {
+			documents: [{ doctype: 'LMS Live Class', name: cls.name }],
+		})
+		toast({ title: __('Success'), message: __('Live class deleted'), icon: 'check' })
+		liveClasses.reload()
+	} catch (e) {
+		toast({ title: __('Error'), message: e.message || __('Failed to delete live class'), icon: 'alert-circle' })
+	}
+}
 
 // The `cache` key is what lets LiveClassForm refresh this list after a create
 // without a prop or a defineModel between them: it looks the instance up by
@@ -198,9 +248,10 @@ const isAdmin = () => {
 }
 
 const canAccessClass = (cls) => {
+	if (hasClassEnded(cls)) return false
+	if (isAdmin()) return true
 	if (cls.date < dayjs().format('YYYY-MM-DD')) return false
 	if (cls.date > dayjs().format('YYYY-MM-DD')) return false
-	if (hasClassEnded(cls)) return false
 	return true
 }
 
