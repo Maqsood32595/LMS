@@ -16,7 +16,10 @@ async function j(url, opts = {}) {
 (async () => {
     console.log('\n💳 [TEST] Running Coupons, Pricing & Payment Gateways Suite in RAM...\n');
 
-    const tutorLogin = await j('/api/method/login', { method: 'POST', body: JSON.stringify({ usr: 'testtutor@fractallms.app', pwd: 'admin' }) });
+    const tutorLogin = await j('/api/method/login', {
+        method: 'POST',
+        body: JSON.stringify({ usr: 'testtutor@test.com', pwd: 'admin' }),
+    });
     const tutorCookie = (tutorLogin.res.headers.get('set-cookie') || '').match(/user_id=([^;]+)/)[1];
     const tutorAuth = { Cookie: `user_id=${tutorCookie}` };
 

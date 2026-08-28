@@ -21,7 +21,7 @@ async function j(url, opts = {}) {
     const adminCookie = (adminLogin.res.headers.get('set-cookie') || '').match(/user_id=([^;]+)/)[1];
     const adminAuth = { Cookie: `user_id=${adminCookie}` };
 
-    const tutorLogin = await j('/api/method/login', { method: 'POST', body: JSON.stringify({ usr: 'testtutor@fractallms.app', pwd: 'admin' }) });
+    const tutorLogin = await j('/api/method/login', { method: 'POST', body: JSON.stringify({ usr: 'testtutor@test.com', pwd: 'admin' }) });
     const tutorCookie = (tutorLogin.res.headers.get('set-cookie') || '').match(/user_id=([^;]+)/)[1];
     const tutorAuth = { Cookie: `user_id=${tutorCookie}` };
 
