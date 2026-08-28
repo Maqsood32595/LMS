@@ -46,7 +46,8 @@ async function getCourseDetail(idOrName, user) {
 
     const instructors = await db.query(
         `SELECT u.id, u.first_name, u.last_name, u.avatar_url, u.bio, u.headline
-         FROM users u WHERE u.role IN ('admin','instructor')`
+         FROM users u WHERE u.role IN ('admin','instructor')
+         ORDER BY (CASE WHEN u.role='admin' THEN 0 ELSE 1 END), u.created_at ASC LIMIT 1`
     );
 
     return { ...course, chapters, enrolled, instructors };

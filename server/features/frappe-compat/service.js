@@ -126,9 +126,10 @@ const CARDS = `c.name, c.title, c.image, c.short_introduction, c.category,
 
 async function staffList() {
     const rows = await db.query(
-        `SELECT DISTINCT ON (email) email AS name, email, first_name, last_name, avatar_url AS user_image
-         FROM users WHERE role IN ('instructor','admin') ORDER BY email, created_at DESC LIMIT 5`
+        `SELECT DISTINCT ON (email) email AS name, email, first_name, last_name, avatar_url AS user_image, role
+         FROM users WHERE role IN ('admin','instructor') ORDER BY email, created_at DESC LIMIT 5`
     );
+    rows.sort((a, b) => (a.role === 'admin' ? -1 : 1));
     const seen = new Set();
     const result = [];
     for (const r of rows) {
@@ -308,7 +309,8 @@ async function getRelatedCourses({ course, category } = {}) {
     if (category) { p.push(category); w += ` AND c.category = $${p.length}`; }
     const rows = await db.query(`SELECT ${CARDS} FROM courses c WHERE ${w} ORDER BY c.created_at DESC LIMIT 4`, p);
     const staff = await staffList();
-    return rows.map((r) => ({ ...r, instructors: staff || [], membership: null }));
+    const primaryInstructor = staff.length > 0 ? [staff[0]] : [];
+    return rows.map((r) => ({ ...r, instructors: primaryInstructor, membership: null }));
 }
 
 async function getCourseOutline({ course, user } = {}) {
@@ -633,7 +635,8 @@ async function createdCourses(input) {
     }
     const rows = await db.query(`SELECT ${CARDS} FROM courses c ORDER BY c.created_at DESC`);
     const staff = await staffList();
-    return rows.map((r) => ({ ...r, instructors: staff || [], membership: null }));
+    const primaryInstructor = staff.length > 0 ? [staff[0]] : [];
+    return rows.map((r) => ({ ...r, instructors: primaryInstructor, membership: null }));
 }
 
 async function upcomingLiveClasses() {
@@ -1594,9 +1597,10 @@ async function getBatches({ title, category, filters, user, start = 0, limit = 2
         p
     );
     const staff = await staffList();
+    const primaryInstructor = staff.length > 0 ? [staff[0]] : [];
     return rows.map((r) => ({
         ...r,
-        instructors: staff || [],
+        instructors: primaryInstructor,
         enrolled: false,
     }));
 }
@@ -1627,6 +1631,7 @@ async function getBatchDetails({ batch, user } = {}) {
     if (!rows[0]) throw Object.assign(new Error('Batch not found'), { status: 404 });
     const b = rows[0];
     const staff = await staffList();
+    const primaryInstructor = staff.length > 0 ? [staff[0]] : [];
     let isEnrolled = false;
     if (user) {
         const u = await db.query('SELECT id FROM users WHERE lower(email)=lower($1) LIMIT 1', [user]);
@@ -1639,7 +1644,7 @@ async function getBatchDetails({ batch, user } = {}) {
         ...b,
         conferencing_provider: b.conferencing_provider || 'Google Meet',
         google_meet_account: b.google_meet_account || 'admin@fractallms.app',
-        instructors: staff || [],
+        instructors: primaryInstructor,
         is_enrolled: isEnrolled,
         courses: [],
     };
@@ -1670,7 +1675,8 @@ async function myBatches(input) {
         [u.id]
     );
     const staff = await staffList();
-    return rows.map((r) => ({ ...r, instructors: staff || [], enrolled: true }));
+    const primaryInstructor = staff.length > 0 ? [staff[0]] : [];
+    return rows.map((r) => ({ ...r, instructors: primaryInstructor, enrolled: true }));
 }
 
 async function createdBatches(input) {
@@ -1686,7 +1692,8 @@ async function createdBatches(input) {
          ORDER BY b.created_at DESC`
     );
     const staff = await staffList();
-    return rows.map((r) => ({ ...r, instructors: staff || [], enrolled: false }));
+    const primaryInstructor = staff.length > 0 ? [staff[0]] : [];
+    return rows.map((r) => ({ ...r, instructors: primaryInstructor, enrolled: false }));
 }
 
 async function getCertificationDetails({ certificate_id, name } = {}) {
