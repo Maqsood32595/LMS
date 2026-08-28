@@ -2,9 +2,10 @@ const express = require('express');
 const router = express.Router();
 const service = require('./service');
 const { requireAuth } = require('../../middleware/auth');
+const { authRateLimiter } = require('../../middleware/rateLimiter');
 
 // POST /api/v1/auth/register  { email, password, first_name, last_name }
-router.post('/register', async (req, res) => {
+router.post('/register', authRateLimiter, async (req, res) => {
     try {
         const { user, token } = await service.register(req.body);
         res.status(201).json({ user, token });
@@ -14,7 +15,7 @@ router.post('/register', async (req, res) => {
 });
 
 // POST /api/v1/auth/login  { email, password } -> { token, user }
-router.post('/login', async (req, res) => {
+router.post('/login', authRateLimiter, async (req, res) => {
     try {
         const { user, token } = await service.login(req.body);
         res.json({ token, user });

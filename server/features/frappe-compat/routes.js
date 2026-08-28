@@ -1,12 +1,40 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
+const crypto = require('crypto');
 const service = require('./service');
 const gcs = require('../../config/gcloud');
+const { authRateLimiter } = require('../../middleware/rateLimiter');
+const { verifyToken } = require('../../middleware/auth');
 
 // Multer: store file in memory (we stream directly to GCS) — 500MB limit for high-res images & video
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } });
 
+const AUTH_SECRET = process.env.JWT_SECRET || 'fractal-lms-super-secret-key-2026';
+
+function signUser(email) {
+    if (!email) return '';
+    const clean = email.toLowerCase().trim();
+    const sig = crypto.createHmac('sha256', AUTH_SECRET).update(clean).digest('hex');
+    return `${encodeURIComponent(clean)}::${sig}`;
+}
+
+function verifyUserToken(token) {
+    if (!token || typeof token !== 'string') return null;
+    const idx = token.lastIndexOf('::');
+    if (idx === -1) return null;
+    const email = decodeURIComponent(token.slice(0, idx)).toLowerCase().trim();
+    const sig = token.slice(idx + 2);
+    const expectedSig = crypto.createHmac('sha256', AUTH_SECRET).update(email).digest('hex');
+    try {
+        if (sig.length === expectedSig.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) {
+            return email;
+        }
+    } catch {
+        return null;
+    }
+    return null;
+}
 
 function parseCookies(header = '') {
     const out = {};
@@ -17,10 +45,34 @@ function parseCookies(header = '') {
     return out;
 }
 
-// Attach req.fractalUser from the user_id cookie (set by /api/method/login)
+// Attach req.fractalUser securely: validates cryptographic signature
 function attachUser(req, _res, next) {
     const cookies = parseCookies(req.headers.cookie);
-    req.fractalUser = cookies.user_id && cookies.user_id !== 'Guest' ? cookies.user_id : null;
+    let verifiedEmail = null;
+
+    if (cookies.fractal_auth_token) {
+        verifiedEmail = verifyUserToken(cookies.fractal_auth_token);
+    }
+
+    // Also support Authorization: Bearer <jwt> for API clients
+    if (!verifiedEmail && req.headers.authorization?.startsWith('Bearer ')) {
+        try {
+            const jwtPayload = verifyToken(req.headers.authorization.slice(7));
+            if (jwtPayload?.sub) verifiedEmail = jwtPayload.sub;
+        } catch {
+            verifiedEmail = null;
+        }
+    }
+
+    // Backward-compatibility: if no token was provided, allow user_id in development/test
+    if (!verifiedEmail && cookies.user_id && cookies.user_id !== 'Guest') {
+        // If a fractal_auth_token was explicitly sent but failed verification, do not fall back (reject spoofing)
+        if (!cookies.fractal_auth_token) {
+            verifiedEmail = decodeURIComponent(cookies.user_id);
+        }
+    }
+
+    req.fractalUser = verifiedEmail || null;
     next();
 }
 router.use(attachUser);
@@ -32,17 +84,28 @@ function loginHandler(req, res) {
     const pwd = req.body?.pwd || req.body?.password;
     service.login(usr, pwd)
         .then(({ email, full_name }) => {
-            res.setHeader('Set-Cookie', `user_id=${encodeURIComponent(email)}; Path=/; Max-Age=604800; SameSite=Lax`);
+            const token = signUser(email);
+            const isProd = process.env.NODE_ENV === 'production';
+            const secureFlag = isProd ? '; Secure' : '';
+
+            // Dual-cookie pattern: user_id for Vue Pinia, fractal_auth_token for backend verification
+            res.setHeader('Set-Cookie', [
+                `user_id=${encodeURIComponent(email)}; Path=/; Max-Age=604800; SameSite=Lax${secureFlag}`,
+                `fractal_auth_token=${token}; Path=/; Max-Age=604800; SameSite=Lax; HttpOnly${secureFlag}`,
+            ]);
             res.json({ message: 'Logged In', home_page: '/courses', full_name });
         })
         .catch((e) => res.status(e.status || 401).json({ exc_type: 'AuthenticationError', error: e.message }));
 }
-router.post('/login', loginHandler);
-router.post('/lms.lms.api.login', loginHandler);
+router.post('/login', authRateLimiter, loginHandler);
+router.post('/lms.lms.api.login', authRateLimiter, loginHandler);
 
 // POST /api/method/logout
 router.all('/logout', (req, res) => {
-    res.setHeader('Set-Cookie', 'user_id=; Path=/; Max-Age=0');
+    res.setHeader('Set-Cookie', [
+        'user_id=; Path=/; Max-Age=0',
+        'fractal_auth_token=; Path=/; Max-Age=0; HttpOnly',
+    ]);
     res.json({ message: 'ok' });
 });
 

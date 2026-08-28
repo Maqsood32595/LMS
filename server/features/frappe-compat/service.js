@@ -124,7 +124,19 @@ const CARDS = `c.name, c.title, c.image, c.short_introduction, c.category,
     c.published, c.featured, c.enable_certification, c.video_link,
     (SELECT COUNT(*)::int FROM enrollments e WHERE e.course_id = c.id) AS enrollment_count`;
 
+// In-RAM SWR Micro-Cache (60s TTL) for static metadata queries
+let staffCache = { data: null, expires: 0 };
+let categoriesCache = { data: null, expires: 0 };
+
+function invalidateMetadataCache() {
+    staffCache.data = null;
+    categoriesCache.data = null;
+}
+
 async function staffList() {
+    if (staffCache.data && Date.now() < staffCache.expires && process.env.NODE_ENV !== 'test') {
+        return staffCache.data;
+    }
     const rows = await db.query(
         `SELECT DISTINCT ON (email) email AS name, email, first_name, last_name, avatar_url AS user_image, role
          FROM users WHERE role IN ('admin','instructor') ORDER BY email, created_at DESC LIMIT 5`
@@ -144,6 +156,7 @@ async function staffList() {
             });
         }
     }
+    staffCache = { data: result, expires: Date.now() + 60000 };
     return result;
 }
 
@@ -245,13 +258,18 @@ async function getCourseCount(params = {}) {
 }
 
 async function getCourseCategories() {
+    if (categoriesCache.data && Date.now() < categoriesCache.expires && process.env.NODE_ENV !== 'test') {
+        return categoriesCache.data;
+    }
     const rows = await db.query(
         "SELECT DISTINCT category AS name FROM courses WHERE category IS NOT NULL AND category <> '' ORDER BY category ASC"
     );
-    return [
+    const result = [
         { label: '', value: null },
         ...rows.map((r) => ({ label: r.name, value: r.name, name: r.name })),
     ];
+    categoriesCache = { data: result, expires: Date.now() + 60000 };
+    return result;
 }
 
 async function courseByName(name) {

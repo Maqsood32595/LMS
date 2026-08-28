@@ -8,6 +8,15 @@ const kernel = require('./kernel');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ── HTTP Security Headers (OWASP A05) ──
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+});
+
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -35,12 +44,32 @@ app.use(
 // Static SPA — serve the built Frappe LMS frontend in production
 const spaDir = path.resolve(__dirname, '../frontend/dist');
 if (fs.existsSync(spaDir)) {
+    // 1-year immutable caching for Vite content-hashed assets
+    app.use('/assets', express.static(path.join(spaDir, 'assets'), {
+        maxAge: '1y',
+        immutable: true,
+    }));
     app.use(express.static(spaDir, { maxAge: '1h' }));
 }
 
 // ── Universal Authenticated GCS Media Proxy: /files/* and /api/v1/files/* ──
 // Serves images (avatars, thumbnails, badges) with caching & streams videos with seek support
 const gcs = require('./config/gcloud');
+
+// In-RAM Signed URL Cache (90-minute TTL to prevent crypto re-signing on timeline seeking)
+const signedUrlCache = new Map();
+const SIGNED_URL_TTL = 90 * 60 * 1000; // 90 minutes
+
+async function getCachedSignedUrl(objectPath) {
+    const cached = signedUrlCache.get(objectPath);
+    if (cached && Date.now() < cached.expires) {
+        return cached.url;
+    }
+    const url = await gcs.signedUrl(objectPath, 7200); // 2-hour GCS v4 signed URL
+    signedUrlCache.set(objectPath, { url, expires: Date.now() + SIGNED_URL_TTL });
+    return url;
+}
+
 async function handleFileStream(req, res) {
     try {
         const rawPath = req.params[0] || req.path.replace(/^\/(?:api\/v1\/)?files\//, '');
@@ -49,10 +78,11 @@ async function handleFileStream(req, res) {
 
         const objectPath = gcs.scopedPath(cleanPath);
 
-        // Videos & audio: issue v4 signed URL redirect for streaming
+        // Videos & audio: issue v4 signed URL redirect with browser caching for smooth seeking
         const isVideo = /\.(mp4|webm|ogg|mov|m4v|mp3|wav)$/i.test(cleanPath);
         if (isVideo) {
-            const url = await gcs.signedUrl(objectPath, 7200);
+            const url = await getCachedSignedUrl(objectPath);
+            res.setHeader('Cache-Control', 'private, max-age=3600');
             return res.redirect(302, url);
         }
 
