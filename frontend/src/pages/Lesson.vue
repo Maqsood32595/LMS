@@ -268,8 +268,18 @@
 								:content="lesson.data.instructor_notes"
 							/>
 						</div>
+						<div v-if="isPdfLesson && lesson.data?.file" class="mt-6">
+							<PdfLessonViewer
+								:key="lesson.data.name"
+								:fileUrl="lesson.data.file"
+								:lessonId="lesson.data.name"
+								:courseId="courseName"
+								@progress-update="onPdfProgress"
+								@lesson-complete="markProgress"
+							/>
+						</div>
 						<div
-							v-if="lesson.data.content"
+							v-else-if="lesson.data.content"
 							@mouseup="toggleInlineMenu"
 							class="ProseMirror prose prose-table:table-fixed prose-td:p-2 prose-th:p-2 prose-td:border prose-th:border prose-td:border-outline-gray-2 prose-th:border-outline-gray-2 prose-td:relative prose-th:relative prose-th:bg-surface-gray-2 prose-sm max-w-none !whitespace-normal mt-8"
 						>
@@ -410,6 +420,7 @@ import {
 } from '@/utils/lessonProgress'
 import EditorJS from '@editorjs/editorjs'
 import LessonContent from '@/components/LessonContent.vue'
+import PdfLessonViewer from '@/components/PdfLessonViewer.vue'
 import CourseInstructors from '@/components/CourseInstructors.vue'
 import ProgressBar from '@/components/ProgressBar.vue'
 import Discussions from '@/components/Discussions.vue'
@@ -1049,8 +1060,23 @@ const fallbackToDwellTimer = (reason) => {
 	startTimer()
 }
 
+const isPdfLesson = computed(() => {
+	const cType = String(lesson.data?.content_type || '').toUpperCase()
+	const file = String(lesson.data?.file || '').toLowerCase()
+	return cType === 'PDF' || file.endsWith('.pdf')
+})
+
+const onPdfProgress = (data) => {
+	if (data?.progress !== undefined) {
+		lessonProgress.value = data.progress
+	}
+	if (data?.completed) {
+		markProgress()
+	}
+}
+
 const startTimer = () => {
-	if (!lesson.data?.membership) return
+	if (!lesson.data?.membership || isPdfLesson.value) return
 	const dwell = resolveDwellSeconds(
 		settingsStore.settings?.data?.lesson_dwell_time
 	)

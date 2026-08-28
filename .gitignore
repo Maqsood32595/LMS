@@ -33,4 +33,6 @@ frontend/vite.config.js.timestamp-*
 *.mkv
 tests/Error.mp4
 server/endpoint-inventory.txt
+server/uploads/
+
 

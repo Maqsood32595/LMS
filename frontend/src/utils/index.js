@@ -647,14 +647,14 @@ const isAdmin = () => {
 const checkIfCanAddProgram = (forMobile = false) => {
 	const { userResource } = usersStore()
 	const { programs } = useSettings()
-	if (!userResource.data) return false
+	if (!userResource?.data) return false
 	if (forMobile) return false
 	if (userResource?.data?.is_moderator || userResource?.data?.is_instructor) {
 		return true
 	}
-	return (
-		programs.data?.enrolled.length > 0 ||
-		programs.data?.published.length > 0
+	return Boolean(
+		programs?.data?.enrolled?.length ||
+		programs?.data?.published?.length
 	)
 }
 

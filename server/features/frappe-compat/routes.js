@@ -128,9 +128,15 @@ router.all('/lms.lms.api.save_evaluation_details', readQ((a) => service.saveEval
 router.all('/lms.lms.utils.get_order_summary', readQ((a) => service.getOrderSummary(a)));
 router.all('/lms.lms.payments.get_payment_link', readQ((a) => service.getPaymentLink(a)));
 
+// ── PDF Course Import & Background Progress ──────────────────────────────
+router.all('/lms.lms.api.import_course_from_pdf', readQ((a) => service.importCourseFromPdf(a)));
+router.all('/lms.lms.api.record_pdf_reading_progress', readQ((a) => service.recordPdfReadingProgress(a)));
+
+
 // frappe.client generic reads/writes used across pages
 router.all('/frappe.client.get_list', readQ((a) => service.clientGetList(a)));
 router.all('/frappe.client.get_value', readQ((a) => service.clientGetValue(a)));
+router.all('/frappe.client.get_single_value', readQ((a) => service.clientGetSingleValue(a)));
 router.all('/frappe.client.get', readQ((a) => service.clientGet(a)));
 router.all('/frappe.client.set_value', readQ((a) => service.clientSetValue(a)));
 router.all('/frappe.client.rename_doc', readQ((a) => ({ name: a?.new_name || a?.rename_to || '' })));

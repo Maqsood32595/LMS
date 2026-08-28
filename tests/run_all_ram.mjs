@@ -9,6 +9,7 @@ const suites = [
     { name: 'Coupons & Payment Gateways Suite', file: 'tests/coupons_payments.test.mjs' },
     { name: 'Member Management Suite', file: 'tests/member_management.test.mjs' },
     { name: 'Settings & RBAC Matrix Suite (225+ Assertions)', file: 'tests/settings_permutations.test.mjs' },
+    { name: 'PDF Courses & Incremental Progress Suite', file: 'tests/pdf_courses.test.mjs' },
     { name: 'PIET Strict 33-Gate Falsification Suite', file: 'tests/piet/piet.mjs' },
 ];
 
@@ -36,7 +37,7 @@ console.log('╚═════════════════════�
         console.error(`\n🚨 ${failed} test suite(s) failed after ${elapsed}s.`);
         process.exit(1);
     } else {
-        console.log(`🎉 ALL 9 TEST SUITES PASSED (500+ ASSERTIONS 100% GREEN IN RAM IN ${elapsed}s)!`);
+        console.log(`🎉 ALL 10 TEST SUITES PASSED (525+ ASSERTIONS 100% GREEN IN RAM IN ${elapsed}s)!`);
         process.exit(0);
     }
 })();

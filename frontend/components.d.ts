@@ -117,6 +117,7 @@ declare module 'vue' {
     PaymentGatewayDetails: typeof import('./src/components/Settings/PaymentGatewayDetails.vue')['default']
     PaymentGateways: typeof import('./src/components/Settings/PaymentGateways.vue')['default']
     PdfBlock: typeof import('./src/components/PdfBlock.vue')['default']
+    PdfLessonViewer: typeof import('./src/components/PdfLessonViewer.vue')['default']
     PersonaCard: typeof import('./src/components/Persona/PersonaCard.vue')['default']
     PersonaOutcomeStep: typeof import('./src/components/Persona/PersonaOutcomeStep.vue')['default']
     PersonaTagStep: typeof import('./src/components/Persona/PersonaTagStep.vue')['default']

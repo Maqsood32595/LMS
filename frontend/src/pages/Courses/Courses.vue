@@ -355,13 +355,10 @@ const courseMenu = computed(() => {
 			},
 		},
 		{
-			label: __('Import via Data Import Tool'),
-			icon: 'lucide-upload',
+			label: __('Import via PDF'),
+			icon: 'lucide-file-text',
 			onClick() {
-				router.push({
-					name: 'NewDataImport',
-					params: { doctype: 'LMS Course' },
-				})
+				openFormRoute(router, { name: 'CourseImport' })
 			},
 		},
 		{
@@ -369,6 +366,16 @@ const courseMenu = computed(() => {
 			icon: 'lucide-folder-plus',
 			onClick() {
 				openFormRoute(router, { name: 'CourseImport' })
+			},
+		},
+		{
+			label: __('Import via Data Import Tool'),
+			icon: 'lucide-upload',
+			onClick() {
+				router.push({
+					name: 'NewDataImport',
+					params: { doctype: 'LMS Course' },
+				})
 			},
 		},
 	]

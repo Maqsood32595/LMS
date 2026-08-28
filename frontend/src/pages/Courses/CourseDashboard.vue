@@ -89,6 +89,28 @@
 									{{ Math.ceil(Number(value)) }}%
 								</span>
 							</span>
+							<span
+								v-else-if="column.key === 'status'"
+								class="flex items-center"
+							>
+								<Badge
+									v-if="Math.ceil(Number(row.progress)) >= 80"
+									theme="green"
+									size="sm"
+									variant="subtle"
+								>
+									<template #prefix>
+										<span class="lucide-check size-3.5 text-green-600" />
+									</template>
+									{{ __('Completed') }}
+								</Badge>
+								<span
+									v-else
+									class="text-xs text-ink-gray-5"
+								>
+									{{ __('In Progress') }}
+								</span>
+							</span>
 							<span v-else-if="column.key === 'creation'">
 								{{ dayjs(value as string).format('DD MMM YYYY') }}
 							</span>
@@ -257,6 +279,7 @@
 <script setup lang="ts">
 import {
 	Avatar,
+	Badge,
 	Button,
 	createListResource,
 	createResource,
@@ -384,12 +407,17 @@ const progressColumns = computed<ListColumn[]>(() => {
 		{
 			label: __('Name'),
 			key: 'member_name',
-			width: '40%',
+			width: '34%',
 		},
 		{
 			label: __('Progress'),
 			key: 'progress',
-			width: '30%',
+			width: '26%',
+		},
+		{
+			label: __('Status'),
+			key: 'status',
+			width: '20%',
 		},
 		{
 			label: __('Enrolled On'),

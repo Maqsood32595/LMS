@@ -1,5 +1,5 @@
 <template>
-	<FormShell :title="__('Import Course from ZIP')" size="lg" @close="close">
+	<FormShell :title="__('Import Course')" size="lg" @close="close">
 		<template #default>
 			<div v-if="!canCreate" class="p-4 text-base text-ink-gray-6">
 				{{ __('You are not permitted to create a course.') }}
@@ -19,11 +19,11 @@
 							ref="fileInput"
 							type="file"
 							class="hidden"
-							accept=".zip"
+							accept=".zip,.pdf"
 							@change="(e) => uploadFile(e)"
 						/>
 						<div class="leading-5 text-ink-gray-9">
-							{{ __('Drag and drop a ZIP file, or upload from your') }}
+							{{ __('Drag and drop a ZIP or PDF file, or upload from your') }}
 							<button
 								type="button"
 								@click="openFileSelector"
@@ -137,9 +137,9 @@ const extractFile = (e: Event): File | null => {
 
 const validateFile = (file: File) => {
 	const extension = file.name.split('.').pop()?.toLowerCase()
-	if (extension !== 'zip') {
-		toast.error('Please upload a valid ZIP file.')
-		console.error('Please upload a valid ZIP file.')
+	if (extension !== 'zip' && extension !== 'pdf') {
+		toast.error('Please upload a valid ZIP or PDF file.')
+		console.error('Please upload a valid ZIP or PDF file.')
 	}
 	return extension
 }
@@ -149,7 +149,7 @@ const uploadFile = (e: Event) => {
 	if (!file) return
 
 	let fileType = validateFile(file)
-	if (fileType !== 'zip') return
+	if (fileType !== 'zip' && fileType !== 'pdf') return
 
 	uploadingFile.value = file
 	const uploader = new FileUploadHandler()
@@ -177,7 +177,7 @@ const uploadFile = (e: Event) => {
 			private: 1,
 		})
 		.then((data: any) => {
-			zip.value = data
+			zip.value = { ...data, original_name: file.name }
 		})
 		.catch((error: any) => {
 			console.error('File upload error:', error)
@@ -192,9 +192,17 @@ const uploadFile = (e: Event) => {
 const importZip = () => {
 	if (!canCreate.value) return
 	if (!zip.value) return
-	call('lms.lms.api.import_course_from_zip', {
-		zip_file_path: zip.value.file_url,
-	})
+
+	const fileUrl = zip.value.file_url || zip.value.name || ''
+	const fileName = zip.value.original_name || zip.value.file_name || fileUrl.split('/').pop() || ''
+	const isPdf = fileName.toLowerCase().endsWith('.pdf') || fileUrl.toLowerCase().endsWith('.pdf')
+
+	const method = isPdf ? 'lms.lms.api.import_course_from_pdf' : 'lms.lms.api.import_course_from_zip'
+	const params = isPdf
+		? { file_url: fileUrl, title: fileName.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ') }
+		: { zip_file_path: fileUrl }
+
+	call(method, params)
 		.then((data: any) => {
 			toast.success('Course imported successfully!')
 			deleteFile()

@@ -126,14 +126,24 @@ const CARDS = `c.name, c.title, c.image, c.short_introduction, c.category,
 
 async function staffList() {
     const rows = await db.query(
-        `SELECT email AS name, email, first_name, last_name, avatar_url AS user_image
-         FROM users WHERE role IN ('admin','instructor') LIMIT 10`
+        `SELECT DISTINCT ON (email) email AS name, email, first_name, last_name, avatar_url AS user_image
+         FROM users WHERE role IN ('instructor','admin') ORDER BY email, created_at DESC LIMIT 5`
     );
-    return rows.map((r) => ({
-        ...r,
-        username: r.email.split('@')[0],
-        full_name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email,
-    }));
+    const seen = new Set();
+    const result = [];
+    for (const r of rows) {
+        const fullName = `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email;
+        const key = fullName.toLowerCase();
+        if (!seen.has(key)) {
+            seen.add(key);
+            result.push({
+                ...r,
+                username: r.email.split('@')[0],
+                full_name: fullName,
+            });
+        }
+    }
+    return result;
 }
 
 function parseFilterObj(rawFilters) {
@@ -214,11 +224,13 @@ async function getCourses(params = {}) {
         }
     }
 
+    const primaryInstructor = staff.length > 0 ? [staff[0]] : [];
+
     return rows.map((r) => {
         const mem = enrolledMap.get(r.id) || null;
         return {
             ...r,
-            instructors: staff || [],
+            instructors: primaryInstructor,
             membership: mem ? { ...mem, course: r.name, member: params.user } : null,
         };
     });
@@ -261,7 +273,8 @@ async function getCourseDetails({ course, user }) {
              FROM lessons WHERE chapter_id = $1 ORDER BY idx`, [ch.name]
         );
     }
-    const instructors = await staffList();
+    const staff = await staffList();
+    const instructors = staff.length > 0 ? [staff[0]] : [];
     const related_courses = await getRelatedCourses({ course: c.name, category: c.category });
     let membership = null;
     let roleRow = null;
@@ -503,6 +516,32 @@ async function saveProgress({ lesson, course, scorm_details, user } = {}) {
          DO UPDATE SET progress = $3, status = $4`,
         [u.id, courseId, progress, status]
     );
+
+    // ── Automated Notification on Course Completion ──────────────────────────
+    if (progress >= 80 || status === 'Completed') {
+        try {
+            const staff = await db.query("SELECT email FROM users WHERE role IN ('instructor', 'admin') LIMIT 5");
+            const studentName = `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email;
+            const cInfo = await db.query('SELECT name, title FROM courses WHERE id=$1', [courseId]);
+            const courseTitle = cInfo[0]?.title || 'Course';
+            const courseSlug = cInfo[0]?.name || '';
+
+            for (const s of staff) {
+                if (s.email.toLowerCase() !== u.email.toLowerCase()) {
+                    await createNotification({
+                        for_user: s.email,
+                        from_user: u.email,
+                        subject: `🎓 ${studentName} completed the course "${courseTitle}"`,
+                        link: `/courses/${courseSlug}`,
+                        document_type: 'LMS Course',
+                        document_name: courseSlug,
+                    });
+                }
+            }
+        } catch (notifErr) {
+            console.error('Notification trigger error:', notifErr.message);
+        }
+    }
 
     return { progress, is_complete: progress === 100 };
 }
@@ -1915,6 +1954,11 @@ async function getPaymentLink({ course, gateway = 'stripe' } = {}) {
     };
 }
 
+async function clientGetSingleValue({ doctype, field } = {}) {
+    const lmsSettings = await getLmsSettings();
+    return lmsSettings[field] ?? null;
+}
+
 async function createNotification({ for_user, from_user, subject, link, document_type, document_name }) {
     if (!for_user || !subject) return;
     try {
@@ -2019,6 +2063,92 @@ async function createBatchLiveClass(params, sessionEmail) {
     };
 }
 
+async function importCourseFromPdf({ pdf_file_path, file_url, title, user } = {}) {
+    const rawUrl = file_url || pdf_file_path || '';
+    if (!rawUrl) throw Object.assign(new Error('PDF file URL or path is required'), { status: 400 });
+
+    let courseTitle = (title || rawUrl.split('/').pop().replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ')).trim();
+    if (!courseTitle) courseTitle = 'Imported PDF Subject Course';
+
+    const baseSlug = courseTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const courseName = `${baseSlug}-${Date.now().toString(36)}`;
+
+    const cRows = await db.query(
+        `INSERT INTO courses (title, name, description, published)
+         VALUES ($1, $2, $3, true)
+         RETURNING id, name, title`,
+        [courseTitle, courseName, `Complete curriculum textbook for ${courseTitle}`]
+    );
+    const course = cRows[0];
+
+    const chRows = await db.query(
+        `INSERT INTO chapters (course_id, title, idx)
+         VALUES ($1, $2, 1)
+         RETURNING id`,
+        [course.id, `${courseTitle} — Full Subject Reader`]
+    );
+    const chapter = chRows[0];
+
+    await db.query(
+        `INSERT INTO lessons (chapter_id, title, content_type, file, idx)
+         VALUES ($1, $2, 'PDF', $3, 1)`,
+        [chapter.id, `${courseTitle} (Complete Text)`, rawUrl]
+    );
+
+    return course.name;
+}
+
+async function recordPdfReadingProgress({ lesson_id, course_id, page_number, total_pages, user } = {}) {
+    const u = await requireUser(user);
+    if (!lesson_id || !page_number) throw Object.assign(new Error('lesson_id and page_number required'), { status: 400 });
+
+    let lRows = await db.query('SELECT l.id, ch.course_id FROM lessons l JOIN chapters ch ON ch.id=l.chapter_id WHERE l.id::text=$1 OR l.title=$1 LIMIT 1', [lesson_id]);
+    const realLessonId = lRows[0]?.id || lesson_id;
+    const realCourseId = lRows[0]?.course_id || course_id;
+
+    const cRows = await db.query('SELECT id, name, title FROM courses WHERE id::text=$1 OR name=$1 LIMIT 1', [realCourseId]);
+    const actualCourseId = cRows[0]?.id || realCourseId;
+
+    const existing = await db.query(
+        'SELECT * FROM pdf_reading_progress WHERE member_id=$1 AND lesson_id=$2',
+        [u.id, realLessonId]
+    );
+
+    let pagesSeen = new Set();
+    if (existing[0]?.pages_seen) {
+        existing[0].pages_seen.forEach(p => pagesSeen.add(Number(p)));
+    }
+    pagesSeen.add(Number(page_number));
+
+    const totalPagesNum = Number(total_pages) || existing[0]?.total_pages || 1;
+    const rawPct = Math.min(100, Math.round((pagesSeen.size / totalPagesNum) * 100));
+    const isCompleted = rawPct >= 80;
+    const progressPct = isCompleted ? 100 : rawPct;
+
+    await db.query(
+        `INSERT INTO pdf_reading_progress (member_id, lesson_id, course_id, pages_seen, total_pages, pct_complete, completed_at, last_opened_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+         ON CONFLICT (member_id, lesson_id)
+         DO UPDATE SET pages_seen = $4, total_pages = $5, pct_complete = $6, completed_at = COALESCE(pdf_reading_progress.completed_at, $7), last_opened_at = NOW()`,
+        [u.id, realLessonId, actualCourseId, Array.from(pagesSeen), totalPagesNum, progressPct, isCompleted ? new Date().toISOString() : null]
+    );
+
+    // Save incremental progress directly into enrollments table
+    await db.query(
+        `INSERT INTO enrollments (member_id, course_id, progress, status)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (member_id, course_id)
+         DO UPDATE SET progress = GREATEST(enrollments.progress, $3), status = CASE WHEN $3 >= 80 THEN 'Completed' ELSE enrollments.status END`,
+        [u.id, actualCourseId, progressPct, isCompleted ? 'Completed' : 'In Progress']
+    );
+
+    if (isCompleted) {
+        await saveProgress({ lesson: realLessonId, course: actualCourseId, user });
+    }
+
+    return { pct_complete: progressPct, completed: isCompleted, pages_seen_count: pagesSeen.size, total_pages: totalPagesNum };
+}
+
 module.exports = {
     login, getUserInfo, getProfileDetails, getLmsSettings, getBranding, getSidebarSettings,
     getAllUsers, getPwaManifest, myCourses, createdCourses, upcomingLiveClasses,
@@ -2032,7 +2162,9 @@ module.exports = {
     upsertChapter, createLesson, reindex, delRow, delCourse, deleteDocuments,
     clientGetList, clientGetValue, clientGet, clientSetValue, updateUserField,
     getMembers, getMember, saveRole, deleteMember,
-    saveEvaluationDetails, getOrderSummary, getPaymentLink,
+    saveEvaluationDetails, getOrderSummary, getPaymentLink, clientGetSingleValue,
     getNotifications, markNotificationAsRead, markAllNotificationsAsRead, createNotification,
     createBatchLiveClass,
+    importCourseFromPdf, recordPdfReadingProgress,
 };
+
