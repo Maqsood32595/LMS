@@ -41,18 +41,7 @@ app.use(
     })
 );
 
-// Static SPA — serve the built Frappe LMS frontend in production
-const spaDir = path.resolve(__dirname, '../frontend/dist');
-if (fs.existsSync(spaDir)) {
-    // 1-year immutable caching for Vite content-hashed assets
-    app.use('/assets', express.static(path.join(spaDir, 'assets'), {
-        maxAge: '1y',
-        immutable: true,
-    }));
-    app.use(express.static(spaDir, { maxAge: '1h' }));
-}
-
-// ── Universal Authenticated GCS Media Proxy: /files/* and /api/v1/files/* ──
+// ── Universal Authenticated GCS Media Proxy: /files/*, /media/* ──
 // Serves images (avatars, thumbnails, badges) with caching & streams videos with seek support
 const gcs = require('./config/gcloud');
 
@@ -72,7 +61,7 @@ async function getCachedSignedUrl(objectPath) {
 
 async function handleFileStream(req, res) {
     try {
-        const rawPath = req.params[0] || req.path.replace(/^\/(?:api\/v1\/)?files\//, '');
+        const rawPath = req.params[0] || req.path.replace(/^\/(?:api\/v1\/)?(?:files|media)\//, '');
         const cleanPath = decodeURIComponent(rawPath).replace(/\.\./g, '').replace(/^\/+/, '');
         if (!cleanPath) return res.status(400).json({ error: 'File path required' });
 
@@ -109,6 +98,19 @@ async function handleFileStream(req, res) {
 }
 app.get('/files/*', handleFileStream);
 app.get('/api/v1/files/*', handleFileStream);
+app.get('/media/*', handleFileStream);
+app.get('/api/v1/media/*', handleFileStream);
+
+// Static SPA — serve the built Frappe LMS frontend in production
+const spaDir = path.resolve(__dirname, '../frontend/dist');
+if (fs.existsSync(spaDir)) {
+    // 1-year immutable caching for Vite content-hashed assets
+    app.use('/assets', express.static(path.join(spaDir, 'assets'), {
+        maxAge: '1y',
+        immutable: true,
+    }));
+    app.use(express.static(spaDir, { maxAge: '1h' }));
+}
 
 // ── Boot the Kernel — discovers and mounts all features automatically ──
 
