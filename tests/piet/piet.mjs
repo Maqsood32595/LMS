@@ -38,10 +38,19 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
 function eq(a, b, msg) { assert(a === b, `${msg || 'eq'} â†’ expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`) }
 
 async function j(pathname, opts = {}) {
-    const res = await fetch(`${BASE}${pathname}`, {
-        ...opts,
-        headers: { Origin: BASE, 'Content-Type': 'application/json', ...(opts.headers || {}) },
-    })
+    let res = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            res = await fetch(`${BASE}${pathname}`, {
+                ...opts,
+                headers: { Origin: BASE, 'Content-Type': 'application/json', ...(opts.headers || {}) },
+            });
+            break;
+        } catch (err) {
+            if (attempt === 2) throw err;
+            await new Promise((r) => setTimeout(r, 150));
+        }
+    }
     let body = null
     try { body = await res.clone().json() } catch { /* html/text */ }
     return { res, body }

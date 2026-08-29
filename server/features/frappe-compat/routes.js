@@ -144,7 +144,7 @@ router.all('/lms.lms.api.get_my_live_classes', read((req) => service.upcomingLiv
 router.all('/lms.lms.api.get_admin_live_classes', read((req) => service.upcomingLiveClasses()));
 router.all('/lms.lms.api.get_admin_evals', read(() => []));
 router.all('/lms.lms.api.get_streak_info', read((req) => service.streakInfo(req.fractalUser)));
-router.all('/lms.lms.api.search_users_by_role', read((req) => service.searchUsersByRole(req.body?.roles)));
+router.all('/lms.lms.api.search_users_by_role', read((req) => service.searchUsersByRole(req.body?.roles, req.fractalUser)));
 
 // frappe.client.* — the generic client API used by the preserved UI
 router.all('/frappe.client.get_count', readQ((a) => service.getCount(a)));
@@ -232,6 +232,9 @@ router.all('/lms.lms.api.delete_course', readQ((a) => service.delCourse(a?.cours
 // Returns Frappe-standard { message: { file_url, file_name, file_size, is_private } }.
 router.post('/upload_file', upload.single('file'), async (req, res) => {
     try {
+        if (!req.fractalUser) {
+            return res.status(401).json({ exc_type: 'AuthenticationError', message: 'Authentication required to upload files' });
+        }
         if (!req.file) {
             return res.status(400).json({ exc_type: 'ValidationError', message: 'No file provided' });
         }
@@ -247,7 +250,7 @@ router.post('/upload_file', upload.single('file'), async (req, res) => {
         // ── Route to the correct GCS sub-folder ────────────────────────────
         let gcsFolder;
         if (doctype === 'User') {
-            const userSlug = slug(docname || req.fractalUser || 'unknown');
+            const userSlug = slug(req.fractalUser || docname || 'unknown');
             if (fieldname === 'user_image' || fieldname === 'image') {
                 gcsFolder = `users/${userSlug}/avatar`;
             } else if (fieldname === 'cover_image') {
@@ -273,9 +276,9 @@ router.post('/upload_file', upload.single('file'), async (req, res) => {
             contentType: req.file.mimetype,
         });
 
-        // Auto-persist the URL to the right DB column when we know the User
-        if (doctype === 'User' && (docname || req.fractalUser)) {
-            const email  = req.fractalUser || docname;
+        // Auto-persist the URL to the right DB column for the authenticated user
+        if (doctype === 'User') {
+            const email  = req.fractalUser;
             const colMap = {
                 user_image:  'avatar_url',
                 image:       'avatar_url',

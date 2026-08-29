@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS courses (
     featured           BOOLEAN NOT NULL DEFAULT false,
     enable_certification BOOLEAN NOT NULL DEFAULT false,
     max_students       INT,
+    instructors        JSONB DEFAULT '[]'::jsonb,
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_courses_category ON courses(category);

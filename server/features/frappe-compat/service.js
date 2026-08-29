@@ -121,7 +121,7 @@ async function getAllUsers() {
 
 // ── Core journey reads (upstream lms.lms.utils contracts) ───────────────
 const CARDS = `c.name, c.title, c.image, c.short_introduction, c.category,
-    c.published, c.featured, c.enable_certification, c.video_link,
+    c.published, c.featured, c.enable_certification, c.video_link, c.instructors,
     (SELECT COUNT(*)::int FROM enrollments e WHERE e.course_id = c.id) AS enrollment_count`;
 
 // In-RAM SWR Micro-Cache (60s TTL) for static metadata queries
@@ -158,6 +158,47 @@ async function staffList() {
     }
     staffCache = { data: result, expires: Date.now() + 60000 };
     return result;
+}
+
+async function formatInstructors(rawInstructors, fallbackStaff = []) {
+    let emails = [];
+    if (rawInstructors) {
+        let list = typeof rawInstructors === 'string' ? JSON.parse(rawInstructors) : rawInstructors;
+        if (Array.isArray(list)) {
+            emails = list.map((i) => (typeof i === 'string' ? i : (i.instructor || i.name || i.email))).filter(Boolean);
+        }
+    }
+    if (emails.length > 0) {
+        const rows = await db.query(
+            `SELECT email, first_name, last_name, avatar_url AS user_image FROM users WHERE lower(email) = ANY($1::text[])`,
+            [emails.map((e) => e.toLowerCase())]
+        );
+        if (rows.length > 0) {
+            return rows.map((r) => {
+                const fullName = `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email;
+                return {
+                    instructor: r.email,
+                    instructor_name: fullName,
+                    full_name: fullName,
+                    name: r.email,
+                    email: r.email,
+                    user_image: r.user_image || '',
+                };
+            });
+        }
+    }
+    if (fallbackStaff.length > 0) {
+        const s = fallbackStaff[0];
+        return [{
+            instructor: s.email,
+            instructor_name: s.full_name,
+            full_name: s.full_name,
+            name: s.email,
+            email: s.email,
+            user_image: s.user_image || '',
+        }];
+    }
+    return [];
 }
 
 function parseFilterObj(rawFilters) {
@@ -240,14 +281,17 @@ async function getCourses(params = {}) {
 
     const primaryInstructor = staff.length > 0 ? [staff[0]] : [];
 
-    return rows.map((r) => {
+    return Promise.all(rows.map(async (r) => {
         const mem = enrolledMap.get(r.id) || null;
+        const instructors = r.instructors && Array.isArray(r.instructors) && r.instructors.length > 0
+            ? await formatInstructors(r.instructors, staff)
+            : primaryInstructor;
         return {
             ...r,
-            instructors: primaryInstructor,
+            instructors,
             membership: mem ? { ...mem, course: r.name, member: params.user } : null,
         };
-    });
+    }));
 }
 
 async function getCourseCount(params = {}) {
@@ -293,7 +337,7 @@ async function getCourseDetails({ course, user }) {
         );
     }
     const staff = await staffList();
-    const instructors = staff.length > 0 ? [staff[0]] : [];
+    const instructors = await formatInstructors(c.instructors, staff);
     const related_courses = await getRelatedCourses({ course: c.name, category: c.category });
     let membership = null;
     let roleRow = null;
@@ -328,7 +372,12 @@ async function getRelatedCourses({ course, category } = {}) {
     const rows = await db.query(`SELECT ${CARDS} FROM courses c WHERE ${w} ORDER BY c.created_at DESC LIMIT 4`, p);
     const staff = await staffList();
     const primaryInstructor = staff.length > 0 ? [staff[0]] : [];
-    return rows.map((r) => ({ ...r, instructors: primaryInstructor, membership: null }));
+    return Promise.all(rows.map(async (r) => {
+        const instructors = r.instructors && Array.isArray(r.instructors) && r.instructors.length > 0
+            ? await formatInstructors(r.instructors, staff)
+            : primaryInstructor;
+        return { ...r, instructors, membership: null };
+    }));
 }
 
 async function getCourseOutline({ course, user } = {}) {
@@ -568,54 +617,164 @@ async function saveProgress({ lesson, course, scorm_details, user } = {}) {
 
 async function getQuizWithQuestions({ quiz } = {}) {
     const qRows = await db.query(
-        'SELECT id AS name, title, passing_percentage, max_attempts FROM quizzes WHERE id::text=$1 OR title=$1 LIMIT 1', [quiz]
+        'SELECT id AS name, title, passing_percentage, total_marks, duration_minutes, show_answers FROM quizzes WHERE id::text=$1 OR title=$1 LIMIT 1', [quiz]
     );
     if (!qRows[0]) throw Object.assign(new Error('Quiz not found'), { status: 404 });
     const q = qRows[0];
+    
+    // Fetch questions ordered by idx
     const questions = await db.query(
-        `SELECT id AS name, question, type, multiple, options, idx
-         FROM questions WHERE quiz_id = $1 ORDER BY idx`, [q.name]
+        'SELECT id AS name, id, question, type, marks, idx FROM questions WHERE quiz_id = $1 ORDER BY idx ASC', [q.name]
     );
-    return { ...q, questions };
+
+    const questionsByName = {};
+    const quizQuestions = [];
+
+    for (const qn of questions) {
+        const opts = await db.query(
+            'SELECT id, option, is_correct FROM question_options WHERE question_id = $1 ORDER BY id ASC',
+            [qn.id]
+        );
+        
+        const qDetail = {
+            name: qn.name,
+            question: qn.question,
+            type: qn.type || 'Choices',
+            multiple: 0,
+            marks: Number(qn.marks) || 1,
+            options: opts.map(o => ({ id: o.id, option: o.option })) // never leak is_correct to client
+        };
+
+        // Frappe LMS Quiz.vue binds option_1, option_2, option_3, option_4
+        opts.forEach((o, index) => {
+            qDetail[`option_${index + 1}`] = o.option;
+        });
+
+        questionsByName[qn.name] = qDetail;
+        questionsByName[qn.question] = qDetail;
+        quizQuestions.push({
+            name: qn.name,
+            question: qn.question,
+            marks: Number(qn.marks) || 1
+        });
+    }
+
+    const quizDoc = {
+        name: q.name,
+        title: q.title,
+        passing_percentage: Number(q.passing_percentage) || 50,
+        total_marks: Number(q.total_marks) || questions.length,
+        duration: (Number(q.duration_minutes) || 15) * 60, // seconds for Vue timer
+        show_answers: q.show_answers ? 1 : 0,
+        questions: quizQuestions
+    };
+
+    return {
+        ...quizDoc,
+        quiz: quizDoc,
+        questions_by_name: questionsByName,
+        questions: quizQuestions
+    };
 }
 
-async function submitQuizLegacy({ quiz, answers, user } = {}) {
+async function submitQuizLegacy({ quiz, answers, results, user } = {}) {
     if (!user) throw Object.assign(new Error('Authentication required'), { status: 401 });
-    const ansMap = typeof answers === 'string' ? JSON.parse(answers) : (answers || {});
+    
+    // Parse answers — Quiz.vue sends { results: '[{ "question_name": "...", "answer": ["..."] }]' }
+    let ansMap = {};
+    if (results) {
+        const parsedResults = typeof results === 'string' ? JSON.parse(results) : results;
+        if (Array.isArray(parsedResults)) {
+            for (const r of parsedResults) {
+                if (r.question_name && r.answer) {
+                    ansMap[r.question_name] = r.answer;
+                }
+            }
+        }
+    } else if (answers) {
+        ansMap = typeof answers === 'string' ? JSON.parse(answers) : answers;
+    }
 
-    const qRows = await db.query('SELECT id, passing_percentage FROM quizzes WHERE id::text=$1 OR title=$1 LIMIT 1', [quiz]);
+    const qRows = await db.query('SELECT id, passing_percentage, total_marks FROM quizzes WHERE id::text=$1 OR title=$1 LIMIT 1', [quiz]);
     if (!qRows[0]) throw Object.assign(new Error('Quiz not found'), { status: 404 });
     const q = qRows[0];
 
-    const questions = await db.query('SELECT id, options, type FROM questions WHERE quiz_id = $1', [q.id]);
-    let correct = 0;
+    const questions = await db.query('SELECT id, type, marks FROM questions WHERE quiz_id = $1', [q.id]);
+    let scored = 0;
+    let totalMarks = 0;
+
     for (const qn of questions) {
-        const userChoice = ansMap[qn.id] || ansMap[String(qn.id)];
-        const opts = Array.isArray(qn.options) ? qn.options : [];
-        const isRight = opts.some((o) => (o.is_correct || o.correct) && (o.option === userChoice || o.id === userChoice || String(o.idx) === String(userChoice)));
-        if (isRight) correct++;
+        const qMarks = Number(qn.marks) || 1;
+        totalMarks += qMarks;
+        
+        let userChoice = ansMap[qn.id] || ansMap[String(qn.id)];
+        if (!userChoice) continue;
+        if (!Array.isArray(userChoice)) userChoice = [userChoice];
+
+        const opts = await db.query('SELECT id, option, is_correct FROM question_options WHERE question_id = $1', [qn.id]);
+        const isRight = opts.some((o) => o.is_correct && userChoice.some(c => String(c) === String(o.id) || String(c).trim() === o.option?.trim()));
+        if (isRight) scored += qMarks;
     }
-    const total = questions.length || 1;
-    const score = correct;
-    const percentage = Math.round((correct / total) * 100);
-    const passed = percentage >= (q.passing_percentage || 70);
+
+    if (totalMarks === 0) totalMarks = questions.length || 1;
+    const percentage = Math.round((scored / totalMarks) * 100);
+    const passingThreshold = Number(q.passing_percentage) || 50;
+    const passed = percentage >= passingThreshold;
 
     const u = await db.query('SELECT id FROM users WHERE lower(email)=lower($1) LIMIT 1', [user]);
     if (u[0]) {
         await db.query(
-            'INSERT INTO quiz_submissions (member_id, quiz_id, score, percentage, passed) VALUES ($1,$2,$3,$4,$5)',
-            [u[0].id, q.id, score, percentage, passed]
+            'INSERT INTO quiz_submissions (member_id, quiz_id, score, percentage, passed, submission) VALUES ($1,$2,$3,$4,$5,$6)',
+            [u[0].id, q.id, scored, percentage, passed, JSON.stringify(ansMap)]
         );
     }
-    return { score, percentage, passed, result: passed ? 'Pass' : 'Fail' };
+    return { score: scored, total_marks: totalMarks, percentage, passed, result: passed ? 'Pass' : 'Fail' };
 }
 
-async function checkAnswer({ question, answer } = {}) {
-    const rows = await db.query('SELECT options FROM questions WHERE id::text=$1 LIMIT 1', [question]);
-    if (!rows[0]) throw Object.assign(new Error('Question not found'), { status: 404 });
-    const opts = Array.isArray(rows[0].options) ? rows[0].options : [];
-    const isRight = opts.some((o) => (o.is_correct || o.correct) && (o.option === answer || o.id === answer || String(o.idx) === String(answer)));
-    return { is_correct: isRight };
+async function checkAnswer({ question, answers, answer } = {}) {
+    const qRows = await db.query(
+        'SELECT id, type, marks FROM questions WHERE id::text=$1 OR question=$1 LIMIT 1',
+        [question]
+    );
+    if (!qRows[0]) throw Object.assign(new Error('Question not found'), { status: 404 });
+    const q = qRows[0];
+
+    let userAnswers = [];
+    if (answers) {
+        userAnswers = typeof answers === 'string' ? JSON.parse(answers) : answers;
+    } else if (answer) {
+        userAnswers = Array.isArray(answer) ? answer : [answer];
+    }
+    if (!Array.isArray(userAnswers)) userAnswers = [userAnswers];
+
+    const opts = await db.query(
+        'SELECT id, option, is_correct FROM question_options WHERE question_id = $1 ORDER BY id',
+        [q.id]
+    );
+
+    const result = [];
+    let allCorrect = true;
+
+    opts.forEach((o, index) => {
+        const isSelected = userAnswers.some(a => String(a) === String(o.id) || String(a).trim() === o.option?.trim());
+        if (isSelected) {
+            if (o.is_correct) {
+                result[index] = 1;
+            } else {
+                result[index] = 0;
+                allCorrect = false;
+            }
+        } else {
+            if (o.is_correct) {
+                result[index] = 2;
+                allCorrect = false;
+            } else {
+                result[index] = null;
+            }
+        }
+    });
+
+    return result;
 }
 
 // ── Role journeys (Student home · Tutor home · live classes · streaks) ───
@@ -745,10 +904,23 @@ async function insertDoc(doc, sessionEmail) {
         let name = slugify(title);
         const clash = await db.query('SELECT 1 FROM courses WHERE name=$1', [name]);
         if (clash[0]) name = `${name}-${Date.now().toString(36)}`;
+
+        let instList = doc.instructors;
+        let emails = [];
+        if (instList) {
+            if (typeof instList === 'string') { try { instList = JSON.parse(instList); } catch {} }
+            if (Array.isArray(instList)) {
+                emails = instList.map((i) => (typeof i === 'string' ? i : (i.instructor || i.name || i.email))).filter(Boolean);
+            }
+        }
+        if (emails.length === 0 && sessionEmail) {
+            emails = [sessionEmail];
+        }
+
         const ins = await db.query(
-            `INSERT INTO courses (name, title, short_introduction, description, image, video_link, category, published)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING name`,
-            [name, title, doc.short_introduction || '', doc.description || '', doc.image || '', doc.video_link || '', doc.category || '', !!Number(doc.published)]
+            `INSERT INTO courses (name, title, short_introduction, description, image, video_link, category, published, instructors)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING name`,
+            [name, title, doc.short_introduction || '', doc.description || '', doc.image || '', doc.video_link || '', doc.category || '', !!Number(doc.published), JSON.stringify(emails)]
         );
         return { doctype: dt, name: ins[0].name, ...doc };
     }
@@ -1008,7 +1180,10 @@ async function getCount(params) {
     return 0;
 }
 
-async function searchUsersByRole(rolesJson) {
+async function searchUsersByRole(rolesJson, sessionEmail) {
+    if (!sessionEmail) {
+        throw Object.assign(new Error('Authentication required'), { status: 401, exc_type: 'AuthenticationError' });
+    }
     let roles = [];
     try { roles = typeof rolesJson === 'string' ? JSON.parse(rolesJson) : rolesJson || []; } catch { roles = []; }
     const staffRoles = ['Course Creator', 'Moderator', 'Batch Evaluator', 'System Manager'];
@@ -1152,7 +1327,7 @@ const LIST_TABLES = {
     'LMS Enrollment': "SELECT e.id::text AS name, u.email AS member, COALESCE(NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), u.email) AS member_name, COALESCE(u.avatar_url, '') AS member_image, SPLIT_PART(u.email, '@', 1) AS member_username, c.name AS course, e.progress, e.status, e.enrolled_on::text AS creation FROM enrollments e JOIN users u ON u.id = e.member_id JOIN courses c ON c.id = e.course_id",
     'LMS Lesson Note': "SELECT NULL::text AS name, '' AS color, '' AS highlighted_text, '' AS note, NOW()::text AS creation WHERE false",
     'LMS Quiz': "SELECT q.id::text AS name, q.title, q.passing_percentage, q.total_marks, q.show_answers, q.duration_minutes, q.created_at::text AS modified, q.created_at::text AS creation FROM quizzes q",
-    'LMS Quiz Submission': "SELECT qs.id AS name, qs.score, qs.percentage, qs.passed, qs.created_at::text AS creation FROM quiz_submissions qs",
+    'LMS Quiz Submission': "SELECT qs.id::text AS name, qs.quiz_id::text AS quiz, u.email AS member, COALESCE(NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), u.email) AS member_name, COALESCE(u.avatar_url, '') AS member_image, q.title AS quiz_title, qs.score, q.total_marks AS score_out_of, qs.percentage, q.passing_percentage, qs.passed, qs.submission, qs.created_at::text AS creation FROM quiz_submissions qs JOIN users u ON u.id = qs.member_id JOIN quizzes q ON q.id = qs.quiz_id",
     'LMS Course Review': "SELECT r.id AS name, r.rating, r.review, r.created_at::text AS creation FROM reviews r",
     'LMS Certificate': "SELECT cert.id AS name, cert.certificate_id, cert.issued_on::text AS creation, c.title AS course_title, c.name AS course FROM certificates cert JOIN courses c ON c.id = cert.course_id",
     'LMS Assignment': "SELECT a.id::text AS name, a.title, a.instructions, a.max_score, a.created_at::text AS creation FROM assignments a",
@@ -1186,6 +1361,8 @@ async function clientGetList({ doctype, filters = {}, limit = 50, order_by, fiel
             params.push(v); 
             if (doctype === 'LMS Enrollment') {
                 where.push(`(u.email = $${params.length} OR e.member_id = (SELECT id FROM users WHERE lower(email)=lower($${params.length})))`); 
+            } else if (doctype === 'LMS Quiz Submission') {
+                where.push(`(u.email = $${params.length} OR qs.member_id = (SELECT id FROM users WHERE lower(email)=lower($${params.length})))`);
             } else {
                 where.push(`member_id = (SELECT id FROM users WHERE lower(email)=lower($${params.length}))`);
             }
@@ -1206,7 +1383,11 @@ async function clientGetList({ doctype, filters = {}, limit = 50, order_by, fiel
         }
         else if (k === 'quiz') {
             params.push(v);
-            where.push(`quiz_id = (SELECT id FROM quizzes WHERE id::text=$${params.length} OR title=$${params.length})`);
+            if (doctype === 'LMS Quiz Submission') {
+                where.push(`(qs.quiz_id::text = $${params.length} OR q.title = $${params.length})`);
+            } else {
+                where.push(`quiz_id = (SELECT id FROM quizzes WHERE id::text=$${params.length} OR title=$${params.length})`);
+            }
         }
         else if (k === 'title' && Array.isArray(v) && v[0] === 'like') {
             params.push(v[1]);
@@ -1323,6 +1504,52 @@ async function clientGet({ doctype, name } = {}) {
             })),
         };
     }
+    if (doctype === 'LMS Quiz Submission' && name) {
+        const rows = await db.query(`
+            SELECT qs.id::text AS name, qs.quiz_id::text AS quiz, u.email AS member,
+                   COALESCE(NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), u.email) AS member_name,
+                   q.title AS quiz_title, q.total_marks AS score_out_of, q.passing_percentage,
+                   qs.score, qs.percentage, qs.passed, qs.submission, qs.created_at::text AS creation
+            FROM quiz_submissions qs
+            JOIN users u ON u.id = qs.member_id
+            JOIN quizzes q ON q.id = qs.quiz_id
+            WHERE qs.id::text = $1 LIMIT 1
+        `, [name]);
+        if (!rows[0]) throw Object.assign(new Error(`Quiz submission ${name} not found`), { status: 404 });
+        const sub = rows[0];
+        
+        let subObj = {};
+        try { subObj = typeof sub.submission === 'string' ? JSON.parse(sub.submission) : sub.submission || {}; } catch {}
+
+        const qList = await db.query('SELECT id, question, type, marks FROM questions WHERE quiz_id = $1 ORDER BY idx ASC', [sub.quiz]);
+        const result = [];
+        for (const q of qList) {
+            const userAns = subObj[q.id] || subObj[String(q.id)] || [];
+            result.push({
+                name: q.id,
+                question: q.question,
+                type: q.type,
+                marks: q.marks,
+                answer: Array.isArray(userAns) ? userAns : [userAns]
+            });
+        }
+
+        return {
+            doctype: 'LMS Quiz Submission',
+            name: sub.name,
+            quiz: sub.quiz,
+            quiz_title: sub.quiz_title,
+            member: sub.member,
+            member_name: sub.member_name,
+            score: Number(sub.score) || 0,
+            score_out_of: Number(sub.score_out_of) || 0,
+            percentage: Number(sub.percentage) || 0,
+            passing_percentage: Number(sub.passing_percentage) || 0,
+            passed: sub.passed ? 1 : 0,
+            result,
+            creation: sub.creation
+        };
+    }
     if (doctype === 'LMS Course' && name) {
         const c = await courseByName(name);
         const staff = await staffList();
@@ -1343,11 +1570,7 @@ async function clientGet({ doctype, name } = {}) {
             paid_course: Boolean(c.paid_course),
             paid_certificate: Boolean(c.paid_certificate),
             video_link: c.video_link || '',
-            instructors: staff.map((s) => ({
-                instructor: s.email,
-                instructor_name: s.full_name,
-                name: s.email,
-            })),
+            instructors: await formatInstructors(c.instructors, staff),
             card_gradient: 'blue',
         };
     }
@@ -1418,7 +1641,27 @@ async function getDiscussionReplies({ topic } = {}) {
 
 async function clientSetValue({ doctype, name, fieldname, value, user } = {}) {
     if (doctype === 'User' && (name || user)) {
+        const caller = await requireUser(user);
         const target = (name || user || '').trim();
+
+        // IDOR Guard: Verify caller is target user or an administrator
+        const targetRows = await db.query(
+            `SELECT id, email FROM users
+             WHERE lower(email) = lower($1)
+                OR lower(email) LIKE lower($1 || '@%')
+                OR lower(first_name || ' ' || last_name) = lower($1)
+                OR id::text = $1 LIMIT 1`,
+            [target]
+        );
+        if (!targetRows[0]) throw Object.assign(new Error(`User ${target} not found`), { status: 404 });
+        const targetUser = targetRows[0];
+
+        const isSelf = caller.id === targetUser.id || caller.email.toLowerCase() === targetUser.email.toLowerCase();
+        const isAdmin = caller.role === 'admin';
+        if (!isSelf && !isAdmin) {
+            throw Object.assign(new Error('Permission denied: cannot edit other users profiles'), { status: 403, exc_type: 'PermissionError' });
+        }
+
         // The profile edit form sends fieldname as an object (batch update) with all profile
         // fields at once. Support both single-field (fieldname string + value) and batch forms.
         const USER_COL_MAP = {
@@ -1474,6 +1717,7 @@ async function clientSetValue({ doctype, name, fieldname, value, user } = {}) {
     }
 
     if (doctype === 'LMS Course' && name) {
+        await requireStaff(user);
         const colMap = {
             title: 'title',
             short_introduction: 'short_introduction',
@@ -1514,6 +1758,18 @@ async function clientSetValue({ doctype, name, fieldname, value, user } = {}) {
             sets.push(`${col} = $${params.length}`);
         }
 
+        if (updates.instructors !== undefined) {
+            let instList = updates.instructors;
+            if (typeof instList === 'string') {
+                try { instList = JSON.parse(instList); } catch {}
+            }
+            if (Array.isArray(instList)) {
+                const emails = instList.map((i) => (typeof i === 'string' ? i : (i.instructor || i.name || i.email))).filter(Boolean);
+                params.push(JSON.stringify(emails));
+                sets.push(`instructors = $${params.length}::jsonb`);
+            }
+        }
+
         if (sets.length > 0) {
             params.push(name);
             await db.query(`UPDATE courses SET ${sets.join(', ')} WHERE name = $${params.length} OR id::text = $${params.length}`, params);
@@ -1521,6 +1777,7 @@ async function clientSetValue({ doctype, name, fieldname, value, user } = {}) {
         return { ok: true, name };
     }
     if (doctype === 'LMS Batch' && name) {
+        await requireStaff(user);
         const colMap = {
             title: 'title',
             description: 'description',
@@ -1545,6 +1802,19 @@ async function clientSetValue({ doctype, name, fieldname, value, user } = {}) {
             params.push(v);
             sets.push(`${col} = $${params.length}`);
         }
+
+        if (updates.instructors !== undefined) {
+            let instList = updates.instructors;
+            if (typeof instList === 'string') {
+                try { instList = JSON.parse(instList); } catch {}
+            }
+            if (Array.isArray(instList)) {
+                const emails = instList.map((i) => (typeof i === 'string' ? i : (i.instructor || i.name || i.email))).filter(Boolean);
+                params.push(JSON.stringify(emails));
+                sets.push(`instructors = $${params.length}::jsonb`);
+            }
+        }
+
         if (sets.length > 0) {
             params.push(name);
             await db.query(`UPDATE batches SET ${sets.join(', ')} WHERE name = $${params.length} OR id::text = $${params.length}`, params);
