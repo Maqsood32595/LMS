@@ -170,7 +170,7 @@ async function formatInstructors(rawInstructors, fallbackStaff = []) {
     }
     if (emails.length > 0) {
         const rows = await db.query(
-            `SELECT email, first_name, last_name, avatar_url AS user_image FROM users WHERE lower(email) = ANY($1::text[])`,
+            `SELECT email, first_name, last_name, bio, headline, avatar_url AS user_image FROM users WHERE lower(email) = ANY($1::text[])`,
             [emails.map((e) => e.toLowerCase())]
         );
         if (rows.length > 0) {
@@ -180,9 +180,14 @@ async function formatInstructors(rawInstructors, fallbackStaff = []) {
                     instructor: r.email,
                     instructor_name: fullName,
                     full_name: fullName,
+                    first_name: r.first_name || '',
+                    last_name: r.last_name || '',
                     name: r.email,
                     email: r.email,
+                    username: r.email.split('@')[0],
                     user_image: r.user_image || '',
+                    bio: r.bio || '',
+                    headline: r.headline || '',
                 };
             });
         }
@@ -193,9 +198,14 @@ async function formatInstructors(rawInstructors, fallbackStaff = []) {
             instructor: s.email,
             instructor_name: s.full_name,
             full_name: s.full_name,
+            first_name: s.first_name || '',
+            last_name: s.last_name || '',
             name: s.email,
             email: s.email,
+            username: s.username || s.email.split('@')[0],
             user_image: s.user_image || '',
+            bio: s.bio || '',
+            headline: s.headline || '',
         }];
     }
     return [];

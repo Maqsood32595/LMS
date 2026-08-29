@@ -146,8 +146,13 @@ function hasBio(bio?: string | null): boolean {
 	return htmlToText(bio).trim().length > 0 || /<img\b/i.test(bio)
 }
 
-function profileLink(instructor: CourseInstructorInfo) {
-	return { name: 'Profile', params: { username: instructor.username } }
+function profileLink(instructor?: CourseInstructorInfo | null) {
+	const uname =
+		instructor?.username ||
+		instructor?.email?.split('@')[0] ||
+		instructor?.name?.split('@')[0] ||
+		'admin'
+	return { name: 'Profile', params: { username: uname } }
 }
 
 function focusInstructor(instructor: CourseInstructorInfo) {
